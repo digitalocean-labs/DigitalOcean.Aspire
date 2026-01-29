@@ -1,42 +1,33 @@
-using Aspire.Hosting.DigitalOcean;
 using Aspire.Hosting.DigitalOcean.AppPlatform;
-using Aspire.Hosting.DigitalOcean.ContainerRegistry;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Add a DigitalOcean Container Registry (DOCR)
-var docr = builder.AddDigitalOceanContainerRegistry("docr", "my-registry")
-    .WithRegion(DigitalOceanRegions.NYC3)
-    .WithTier(DigitalOceanRegistryTiers.Professional);
+// Enable App Platform deployment support with app name and region
+builder.WithAppPlatformDeploySupport("docr-sample-app", region: "nyc");
 
-// Configure Docker Compose environment with App Platform deployment support
-builder.AddDockerComposeEnvironment("do-app")
-    .WithAppPlatformDeploySupport();
+// Add Redis cache - will be published as App Platform database
+var cache = builder.AddRedis("cache");
 
-
-var cache = builder.AddRedis("cache").PublishAsDockerComposeService((resource, service) =>
-{
-    service.Name = "cache";
-});
-
+// Add the .NET server project - will use source-based deployment from GitHub
 var server = builder.AddProject<Projects.docr_Web_Server>("server")
     .WithReference(cache)
     .WaitFor(cache)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints()
-    .PublishAsDockerComposeService((resource, service) =>
+    .PublishAsAppService(service =>
     {
-        service.Name = "server";
+        service.InstanceCount = 2;
+        service.InstanceSizeSlug = "apps-s-1vcpu-1gb";
+        service.HealthCheckPath = "/health";
     });
 
+// Add the Vite frontend - uses source-based deployment with node-js buildpack
 var webfrontend = builder.AddViteApp("webfrontend", "../frontend")
     .WithReference(server)
     .WaitFor(server)
-    .PublishAsDockerComposeService((resource, service) =>
+    .PublishAsAppService(service =>
     {
-        service.Name = "webfrontend";
+        service.EnvironmentSlug = "node-js";
     });
-
-server.PublishWithContainerFiles(webfrontend, "wwwroot");
 
 builder.Build().Run();

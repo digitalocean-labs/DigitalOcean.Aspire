@@ -3,6 +3,10 @@
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.DigitalOcean.ContainerRegistry;
 using Aspire.Hosting.Docker;
+using Aspire.Hosting.Eventing;
+using Aspire.Hosting.Publishing;
+using Microsoft.Extensions.DependencyInjection;
+using DOModels = InfinityFlow.DigitalOcean.Client.Models;
 
 namespace Aspire.Hosting.DigitalOcean.AppPlatform;
 
@@ -11,6 +15,229 @@ namespace Aspire.Hosting.DigitalOcean.AppPlatform;
 /// </summary>
 public static class AppPlatformExtensions
 {
+    private static bool _appSpecPublisherResourceAdded;
+
+    /// <summary>
+    /// Adds the DigitalOcean App Platform publisher to the distributed application.
+    /// This enables publishing resources as an App Platform app spec when running <c>aspire publish</c>.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="name">Optional name for the App Platform publisher resource.</param>
+    /// <returns>The resource builder for the App Platform publisher.</returns>
+    /// <example>
+    /// <code>
+    /// var builder = DistributedApplication.CreateBuilder(args);
+    /// builder.AddAppPlatformPublisher();
+    /// 
+    /// builder.AddProject&lt;Projects.MyApi&gt;("api")
+    ///     .PublishAsAppSpec();
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<AppPlatformPublisherResource> AddAppPlatformPublisher(
+        this IDistributedApplicationBuilder builder,
+        string name = "appplatform-publisher")
+    {
+        // Prevent duplicate registration
+        if (_appSpecPublisherResourceAdded)
+        {
+            // Return existing resource builder
+            var existingResource = builder.Resources.OfType<AppPlatformPublisherResource>().FirstOrDefault();
+            if (existingResource is not null)
+            {
+                return builder.CreateResourceBuilder(existingResource);
+            }
+        }
+        _appSpecPublisherResourceAdded = true;
+
+        // Configure options
+        builder.Services.Configure<AppPlatformOptions>(
+            builder.Configuration.GetSection(AppPlatformOptions.SectionName));
+
+        // Subscribe to AfterPublishEvent to generate the App Spec
+        builder.Eventing.Subscribe<AfterPublishEvent>(
+            async (@event, cancellationToken) =>
+            {
+                await AppPlatformPublisherResource.GenerateAppSpecAsync(@event, cancellationToken);
+            });
+
+        var resource = new AppPlatformPublisherResource(name);
+        return builder.AddResource(resource)
+            .ExcludeFromManifest();
+    }
+
+    /// <summary>
+    /// Marks a resource for publishing as part of the DigitalOcean App Platform app spec.
+    /// When <c>aspire publish</c> is run, this resource will be included in the generated app-spec.yaml.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="configure">Optional callback to configure the app spec entry for this resource.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyApi&gt;("api")
+    ///     .WithExternalHttpEndpoints()
+    ///     .PublishAsAppSpec();
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsAppSpec<T>(
+        this IResourceBuilder<T> builder,
+        Action<T, DOModels.App_service_spec>? configure = null) where T : IResource
+    {
+        // Ensure the publisher resource is added
+        builder.ApplicationBuilder.AddAppPlatformPublisher();
+        
+        var annotation = new AppSpecPublishAnnotation();
+        if (configure is not null)
+        {
+            annotation.ConfigureServiceCallback = (resource, spec) => configure((T)resource, spec);
+        }
+        
+        builder.WithAnnotation(annotation);
+        return builder;
+    }
+
+    /// <summary>
+    /// Marks a resource for deployment as a DigitalOcean App Platform service.
+    /// Services are HTTP-based components that handle web traffic.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="configure">Optional callback to configure the App Platform service settings.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyApi&gt;("api")
+    ///     .WithExternalHttpEndpoints()
+    ///     .PublishAsAppService(service =>
+    ///     {
+    ///         service.InstanceCount = 2;
+    ///         service.InstanceSizeSlug = "apps-s-1vcpu-1gb";
+    ///         service.HttpPort = 8080;
+    ///     });
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsAppService<T>(
+        this IResourceBuilder<T> builder,
+        Action<AppServiceConfiguration>? configure = null) where T : IResource
+    {
+        // Ensure the publisher resource is added
+        builder.ApplicationBuilder.AddAppPlatformPublisher();
+        
+        var config = new AppServiceConfiguration();
+        configure?.Invoke(config);
+        
+        var annotation = new AppServiceAnnotation(config);
+        builder.WithAnnotation(annotation);
+        
+        // Also add the AppSpecPublishAnnotation for backward compatibility
+        builder.WithAnnotation(new AppSpecPublishAnnotation());
+        
+        return builder;
+    }
+
+    /// <summary>
+    /// Marks a resource for deployment as a DigitalOcean App Platform worker.
+    /// Workers are background processes that don't handle HTTP traffic.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="configure">Optional callback to configure the App Platform worker settings.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyWorker&gt;("worker")
+    ///     .PublishAsAppWorker(worker =>
+    ///     {
+    ///         worker.InstanceCount = 1;
+    ///         worker.InstanceSizeSlug = "apps-s-1vcpu-0.5gb";
+    ///     });
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsAppWorker<T>(
+        this IResourceBuilder<T> builder,
+        Action<AppWorkerConfiguration>? configure = null) where T : IResource
+    {
+        // Ensure the publisher resource is added
+        builder.ApplicationBuilder.AddAppPlatformPublisher();
+        
+        var config = new AppWorkerConfiguration();
+        configure?.Invoke(config);
+        
+        var annotation = new AppWorkerAnnotation(config);
+        builder.WithAnnotation(annotation);
+        
+        // Also add the AppSpecPublishAnnotation for backward compatibility
+        builder.WithAnnotation(new AppSpecPublishAnnotation());
+        
+        return builder;
+    }
+
+    /// <summary>
+    /// Configures the resource to be published as a container image to DOCR (DigitalOcean Container Registry).
+    /// When this is not called, the resource will use source-based deployment from the current git repository.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="configure">Optional callback to configure the container image settings.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyApi&gt;("api")
+    ///     .PublishAsAppService()
+    ///     .WithContainerImage(image =>
+    ///     {
+    ///         image.Tag = "v1.0.0";
+    ///     });
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> WithContainerImage<T>(
+        this IResourceBuilder<T> builder,
+        Action<PublishAsContainerImageAnnotation>? configure = null) where T : IResource
+    {
+        var annotation = new PublishAsContainerImageAnnotation();
+        configure?.Invoke(annotation);
+        
+        builder.WithAnnotation(annotation);
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds App Platform deployment support to the distributed application.
+    /// </summary>
+    /// <param name="builder">The distributed application builder.</param>
+    /// <param name="appName">The name of the App Platform application.</param>
+    /// <param name="region">Optional region for deployment (e.g., "nyc", "sfo", "ams"). Defaults to "nyc".</param>
+    /// <returns>The distributed application builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// var builder = DistributedApplication.CreateBuilder(args);
+    /// builder.WithAppPlatformDeploySupport("my-awesome-app", region: "sfo");
+    /// 
+    /// builder.AddProject&lt;Projects.MyApi&gt;("api")
+    ///     .PublishAsAppService();
+    /// </code>
+    /// </example>
+    public static IDistributedApplicationBuilder WithAppPlatformDeploySupport(
+        this IDistributedApplicationBuilder builder,
+        string? appName = null,
+        string? region = null)
+    {
+        var publisherBuilder = builder.AddAppPlatformPublisher();
+        
+        // Add app name and region annotations to the publisher resource
+        if (appName is not null)
+        {
+            publisherBuilder.WithAnnotation(new AppPlatformAppNameAnnotation(appName));
+        }
+        if (region is not null)
+        {
+            publisherBuilder.WithAnnotation(new AppPlatformRegionAnnotation(region));
+        }
+        
+        return builder;
+    }
+
     /// <summary>
     /// Adds App Platform deployment support to a Docker Compose environment.
     /// </summary>
@@ -154,4 +381,154 @@ internal sealed class AppPlatformRegionAnnotation(string region) : IResourceAnno
 internal sealed class AppPlatformAppNameAnnotation(string appName) : IResourceAnnotation
 {
     public string AppName { get; } = appName;
+}
+
+/// <summary>
+/// Configuration for an App Platform service.
+/// </summary>
+public sealed class AppServiceConfiguration
+{
+    /// <summary>
+    /// Gets or sets the number of instances to run. Default is 1.
+    /// </summary>
+    public int InstanceCount { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the instance size slug (e.g., "apps-s-1vcpu-0.5gb", "apps-s-1vcpu-1gb").
+    /// </summary>
+    public string InstanceSizeSlug { get; set; } = "apps-s-1vcpu-0.5gb";
+
+    /// <summary>
+    /// Gets or sets the HTTP port the service listens on.
+    /// If not set, the port will be inferred from the resource's endpoint annotations, or default to 8080.
+    /// </summary>
+    public int? HttpPort { get; set; }
+
+    /// <summary>
+    /// Gets or sets the health check path for the service.
+    /// </summary>
+    public string? HealthCheckPath { get; set; }
+
+    /// <summary>
+    /// Gets or sets the environment slug (e.g., "dotnet", "node-js", "python").
+    /// </summary>
+    public string? EnvironmentSlug { get; set; }
+
+    /// <summary>
+    /// Gets or sets the source directory within the repository.
+    /// </summary>
+    public string? SourceDir { get; set; }
+
+    /// <summary>
+    /// Gets or sets the build command.
+    /// </summary>
+    public string? BuildCommand { get; set; }
+
+    /// <summary>
+    /// Gets or sets the run command.
+    /// </summary>
+    public string? RunCommand { get; set; }
+}
+
+/// <summary>
+/// Configuration for an App Platform worker.
+/// </summary>
+public sealed class AppWorkerConfiguration
+{
+    /// <summary>
+    /// Gets or sets the number of instances to run. Default is 1.
+    /// </summary>
+    public int InstanceCount { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the instance size slug (e.g., "apps-s-1vcpu-0.5gb", "apps-s-1vcpu-1gb").
+    /// </summary>
+    public string InstanceSizeSlug { get; set; } = "apps-s-1vcpu-0.5gb";
+
+    /// <summary>
+    /// Gets or sets the environment slug (e.g., "dotnet", "node-js", "python").
+    /// </summary>
+    public string? EnvironmentSlug { get; set; }
+
+    /// <summary>
+    /// Gets or sets the source directory within the repository.
+    /// </summary>
+    public string? SourceDir { get; set; }
+
+    /// <summary>
+    /// Gets or sets the build command.
+    /// </summary>
+    public string? BuildCommand { get; set; }
+
+    /// <summary>
+    /// Gets or sets the run command.
+    /// </summary>
+    public string? RunCommand { get; set; }
+}
+
+/// <summary>
+/// Annotation marking a resource as an App Platform service.
+/// </summary>
+public sealed class AppServiceAnnotation(AppServiceConfiguration configuration) : IResourceAnnotation
+{
+    /// <summary>
+    /// Gets the service configuration.
+    /// </summary>
+    public AppServiceConfiguration Configuration { get; } = configuration;
+}
+
+/// <summary>
+/// Annotation marking a resource as an App Platform worker.
+/// </summary>
+public sealed class AppWorkerAnnotation(AppWorkerConfiguration configuration) : IResourceAnnotation
+{
+    /// <summary>
+    /// Gets the worker configuration.
+    /// </summary>
+    public AppWorkerConfiguration Configuration { get; } = configuration;
+}
+
+/// <summary>
+/// Annotation indicating that a resource should be published as a container image to DOCR.
+/// When this annotation is present, the resource will use DOCR for deployment.
+/// When absent, the resource will use source-based deployment from the current git repository.
+/// </summary>
+public sealed class PublishAsContainerImageAnnotation : IResourceAnnotation
+{
+    /// <summary>
+    /// Gets or sets the container registry name (for DOCR).
+    /// If not set, uses the registry from the AppPlatform configuration.
+    /// </summary>
+    public string? RegistryName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the image name. If not set, uses the resource name.
+    /// </summary>
+    public string? ImageName { get; set; }
+
+    /// <summary>
+    /// Gets or sets the image tag. Defaults to "latest".
+    /// </summary>
+    public string Tag { get; set; } = "latest";
+}
+
+/// <summary>
+/// Annotation containing detected git repository information for source-based deployment.
+/// </summary>
+internal sealed class GitRepoInfoAnnotation : IResourceAnnotation
+{
+    /// <summary>
+    /// Gets or sets the GitHub repository in "owner/repo" format.
+    /// </summary>
+    public string? Repository { get; set; }
+
+    /// <summary>
+    /// Gets or sets the branch name.
+    /// </summary>
+    public string Branch { get; set; } = "main";
+
+    /// <summary>
+    /// Gets or sets the source directory relative to the repository root.
+    /// </summary>
+    public string? SourceDir { get; set; }
 }
