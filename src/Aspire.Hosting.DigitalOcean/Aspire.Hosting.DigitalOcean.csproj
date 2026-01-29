@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Suppress experimental API warnings for Aspire preview APIs -->
+    <NoWarn>$(NoWarn);ASPIRECOMPUTE003</NoWarn>
+    
+    <PackageId>Aspire.Hosting.DigitalOcean</PackageId>
+    <Description>DigitalOcean hosting integration for .NET Aspire. Deploy applications to DigitalOcean App Platform with container registry support.</Description>
+    <PackageTags>aspire;digitalocean;appplatform;docr;container-registry;deployment;cloud</PackageTags>
+    <RepositoryUrl>https://github.com/nullreference-io/DigitalOcean.Aspire</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+    <PackageReference Include="Aspire.Hosting.Docker" />
+    <PackageReference Include="InfinityFlow.DigitalOcean.Client" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "aspire",
+      "request": "launch",
+      "name": "Aspire: Launch default apphost",
+      "program": "${workspaceFolder}/src/samples/docr/docr.AppHost/docr.AppHost.csproj",
+      "internalConsoleOptions": "openOnSessionStart",
+      "debuggers": {
+        "project": {
+          "console": "integratedTerminal",
+          "logging": {
+            "moduleLoad": false
+          }
+        },
+        "apphost": {
+          "stopAtEntry": true
+        }
+      }
+    }
+  ]
+}

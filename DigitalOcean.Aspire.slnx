@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/samples/docr/docr.AppHost/docr.AppHost.csproj" />
+  <Project Path="src/samples/docr/docr.ServiceDefaults/docr.ServiceDefaults.csproj" />
+  <Project Path="src/samples/docr/docr.Web.Server/docr.Web.Server.csproj" />
+  <Project Path="src/Aspire.Hosting.DigitalOcean/Aspire.Hosting.DigitalOcean.csproj" />
+</Solution>
