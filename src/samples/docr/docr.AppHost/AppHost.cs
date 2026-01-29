@@ -18,8 +18,14 @@ var server = builder.AddProject<Projects.docr_Web_Server>("server")
     .PublishAsAppService(service =>
     {
         service.InstanceCount = 2;
-        service.InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug { String = "apps-s-1vcpu-1gb" };
-        service.HealthCheck = new App_service_spec_health_check { HttpPath = "/health" };
+        service.InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-1gb" 
+        };
+        service.HealthCheck = new App_service_spec_health_check
+        {
+            HttpPath = "/health"
+        };
     });
 
 // Add the Vite frontend - uses source-based deployment with node-js buildpack

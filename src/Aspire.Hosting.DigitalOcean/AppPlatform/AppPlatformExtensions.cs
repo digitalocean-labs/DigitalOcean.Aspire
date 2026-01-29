@@ -124,10 +124,10 @@ public static class AppPlatformExtensions
         // Ensure the publisher resource is added
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
-        var spec = new DOModels.App_service_spec();
-        configure?.Invoke(spec);
+        var serviceSpec = new DOModels.App_service_spec();
+        configure?.Invoke(serviceSpec);
         
-        var annotation = new AppServiceAnnotation(spec);
+        var annotation = new AppServiceAnnotation(serviceSpec);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -161,10 +161,10 @@ public static class AppPlatformExtensions
         // Ensure the publisher resource is added
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
-        var spec = new DOModels.App_worker_spec();
-        configure?.Invoke(spec);
+        var workerSpec = new DOModels.App_worker_spec();
+        configure?.Invoke(workerSpec);
         
-        var annotation = new AppWorkerAnnotation(spec);
+        var annotation = new AppWorkerAnnotation(workerSpec);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -208,7 +208,7 @@ public static class AppPlatformExtensions
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="appName">The name of the App Platform application.</param>
     /// <param name="region">Optional region for deployment (e.g., "nyc", "sfo", "ams"). Defaults to "nyc".</param>
-    /// <param name="configureAppSpec">Optional callback to configure the entire App Platform app spec using the InfinityFlow model.</param>
+    /// <param name="configureAppSpec">Optional callback to configure the App Platform app spec using the InfinityFlow model.</param>
     /// <returns>The distributed application builder for chaining.</returns>
     /// <example>
     /// <code>
@@ -400,7 +400,7 @@ internal sealed class AppPlatformAppNameAnnotation(string appName) : IResourceAn
 public sealed class AppServiceAnnotation(DOModels.App_service_spec serviceSpec) : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the service spec from InfinityFlow.DigitalOcean.Client.
+    /// Gets the service spec from the InfinityFlow model.
     /// </summary>
     public DOModels.App_service_spec ServiceSpec { get; } = serviceSpec;
 }
@@ -411,18 +411,18 @@ public sealed class AppServiceAnnotation(DOModels.App_service_spec serviceSpec) 
 public sealed class AppWorkerAnnotation(DOModels.App_worker_spec workerSpec) : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the worker spec from InfinityFlow.DigitalOcean.Client.
+    /// Gets the worker spec from the InfinityFlow model.
     /// </summary>
     public DOModels.App_worker_spec WorkerSpec { get; } = workerSpec;
 }
 
 /// <summary>
-/// Annotation containing the App Spec configuration callback.
+/// Annotation containing a callback to configure the App Platform app spec.
 /// </summary>
 internal sealed class AppSpecConfigurationAnnotation(Action<DOModels.App_spec> configure) : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the callback to configure the App Spec.
+    /// Gets the callback to configure the app spec.
     /// </summary>
     public Action<DOModels.App_spec> Configure { get; } = configure;
 }

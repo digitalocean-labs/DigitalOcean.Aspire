@@ -238,58 +238,26 @@ public static class AppSpecGenerator
 
     private static App_service_spec GenerateServiceSpec(ProjectResource project, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Start with defaults, getting the port from endpoint annotations if available
-        var instanceCount = 1;
-        var instanceSizeSlug = "apps-s-1vcpu-0.5gb";
-        var httpPort = GetHttpPort(project);
-        string? healthCheckPath = null;
-        string? environmentSlug = null;
-        string? sourceDir = null;
-        string? buildCommand = null;
-        string? runCommand = null;
-
-        // Check for AppServiceAnnotation and apply configuration (overrides defaults)
+        // Get user-configured spec from annotation, or create new one
+        App_service_spec serviceSpec;
         if (project.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var spec = serviceAnnotations.First().ServiceSpec;
-            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
-            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
-            // Only override port if explicitly set
-            if (spec.HttpPort > 0) httpPort = (int)spec.HttpPort;
-            healthCheckPath = spec.HealthCheck?.HttpPath;
-            environmentSlug = spec.EnvironmentSlug;
-            sourceDir = spec.SourceDir;
-            buildCommand = spec.BuildCommand;
-            runCommand = spec.RunCommand;
+            // Clone the user's spec to avoid modifying the original
+            serviceSpec = CloneServiceSpec(serviceAnnotations.First().ServiceSpec);
+        }
+        else
+        {
+            serviceSpec = new App_service_spec();
         }
 
-        var serviceSpec = new App_service_spec
-        {
-            Name = SanitizeName(project.Name),
-            HttpPort = httpPort,
-            InstanceCount = instanceCount,
-            InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
-            { 
-                String = instanceSizeSlug 
-            }
+        // Apply defaults for unset values
+        serviceSpec.Name ??= SanitizeName(project.Name);
+        serviceSpec.HttpPort ??= GetHttpPort(project);
+        serviceSpec.InstanceCount ??= 1;
+        serviceSpec.InstanceSizeSlug ??= new App_service_spec.App_service_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-0.5gb" 
         };
-
-        // Apply optional settings
-        if (healthCheckPath is not null)
-        {
-            serviceSpec.HealthCheck = new App_service_spec_health_check
-            {
-                HttpPath = healthCheckPath
-            };
-        }
-        if (buildCommand is not null)
-        {
-            serviceSpec.BuildCommand = buildCommand;
-        }
-        if (runCommand is not null)
-        {
-            serviceSpec.RunCommand = runCommand;
-        }
 
         // Determine deployment source: container image or source-based
         if (project.TryGetAnnotationsOfType<PublishAsContainerImageAnnotation>(out var containerAnnotations))
@@ -310,32 +278,22 @@ public static class AppSpecGenerator
         {
             // Explicit GitHub source annotation
             var gitHubAnnotation = gitHubAnnotations.First();
-            serviceSpec.Github = new Apps_github_source_spec
+            serviceSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            if (gitHubAnnotation.Config.SourceDir is not null)
-            {
-                serviceSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
-            }
-
+            serviceSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
+            
             // .NET projects use the dotnet buildpack
-            if (environmentSlug is null)
-            {
-                serviceSpec.EnvironmentSlug = "dotnet";
-            }
-            else
-            {
-                serviceSpec.EnvironmentSlug = environmentSlug;
-            }
+            serviceSpec.EnvironmentSlug ??= "dotnet";
         }
         else if (gitInfo?.Repository is not null)
         {
             // Source-based deployment from current git repository
-            serviceSpec.Github = new Apps_github_source_spec
+            serviceSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
@@ -343,24 +301,42 @@ public static class AppSpecGenerator
             };
 
             // Calculate source directory from project path relative to repo root
-            var projectSourceDir = GetProjectSourceDir(project, gitInfo.RepoRootPath);
-            serviceSpec.SourceDir = sourceDir ?? projectSourceDir;
+            serviceSpec.SourceDir ??= GetProjectSourceDir(project, gitInfo.RepoRootPath);
 
             // .NET projects use the dotnet buildpack
-            serviceSpec.EnvironmentSlug = environmentSlug ?? "dotnet";
-        }
-        else if (environmentSlug is not null)
-        {
-            serviceSpec.EnvironmentSlug = environmentSlug;
-        }
-
-        // Apply sourceDir if set but not already applied
-        if (sourceDir is not null && serviceSpec.SourceDir is null)
-        {
-            serviceSpec.SourceDir = sourceDir;
+            serviceSpec.EnvironmentSlug ??= "dotnet";
         }
 
         return serviceSpec;
+    }
+
+    /// <summary>
+    /// Creates a shallow clone of an App_service_spec to avoid modifying the original.
+    /// </summary>
+    private static App_service_spec CloneServiceSpec(App_service_spec source)
+    {
+        return new App_service_spec
+        {
+            Name = source.Name,
+            HttpPort = source.HttpPort,
+            InstanceCount = source.InstanceCount,
+            InstanceSizeSlug = source.InstanceSizeSlug,
+            HealthCheck = source.HealthCheck,
+            BuildCommand = source.BuildCommand,
+            RunCommand = source.RunCommand,
+            EnvironmentSlug = source.EnvironmentSlug,
+            SourceDir = source.SourceDir,
+            Github = source.Github,
+            Gitlab = source.Gitlab,
+            Bitbucket = source.Bitbucket,
+            Image = source.Image,
+            Envs = source.Envs,
+            Cors = source.Cors,
+            Autoscaling = source.Autoscaling,
+            LogDestinations = source.LogDestinations,
+            Termination = source.Termination,
+            InternalPorts = source.InternalPorts
+        };
     }
 
     /// <summary>
@@ -389,45 +365,25 @@ public static class AppSpecGenerator
 
     private static App_worker_spec GenerateWorkerSpec(ProjectResource project, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Start with defaults
-        var instanceCount = 1;
-        var instanceSizeSlug = "apps-s-1vcpu-0.5gb";
-        string? environmentSlug = null;
-        string? sourceDir = null;
-        string? buildCommand = null;
-        string? runCommand = null;
-
-        // Check for AppWorkerAnnotation and apply configuration
+        // Get user-configured spec from annotation, or create new one
+        App_worker_spec workerSpec;
         if (project.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var spec = workerAnnotations.First().WorkerSpec;
-            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
-            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
-            environmentSlug = spec.EnvironmentSlug;
-            sourceDir = spec.SourceDir;
-            buildCommand = spec.BuildCommand;
-            runCommand = spec.RunCommand;
+            // Clone the user's spec to avoid modifying the original
+            workerSpec = CloneWorkerSpec(workerAnnotations.First().WorkerSpec);
+        }
+        else
+        {
+            workerSpec = new App_worker_spec();
         }
 
-        var workerSpec = new App_worker_spec
-        {
-            Name = SanitizeName(project.Name),
-            InstanceCount = instanceCount,
-            InstanceSizeSlug = new App_worker_spec.App_worker_spec_instance_size_slug 
-            { 
-                String = instanceSizeSlug 
-            }
+        // Apply defaults for unset values
+        workerSpec.Name ??= SanitizeName(project.Name);
+        workerSpec.InstanceCount ??= 1;
+        workerSpec.InstanceSizeSlug ??= new App_worker_spec.App_worker_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-0.5gb" 
         };
-
-        // Apply optional settings
-        if (buildCommand is not null)
-        {
-            workerSpec.BuildCommand = buildCommand;
-        }
-        if (runCommand is not null)
-        {
-            workerSpec.RunCommand = runCommand;
-        }
 
         // Determine deployment source: container image or source-based
         if (project.TryGetAnnotationsOfType<PublishAsContainerImageAnnotation>(out var containerAnnotations))
@@ -448,24 +404,20 @@ public static class AppSpecGenerator
         {
             // Explicit GitHub source annotation
             var gitHubAnnotation = gitHubAnnotations.First();
-            workerSpec.Github = new Apps_github_source_spec
+            workerSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            if (gitHubAnnotation.Config.SourceDir is not null)
-            {
-                workerSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
-            }
-
-            workerSpec.EnvironmentSlug = environmentSlug ?? "dotnet";
+            workerSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
+            workerSpec.EnvironmentSlug ??= "dotnet";
         }
         else if (gitInfo?.Repository is not null)
         {
             // Source-based deployment from current git repository
-            workerSpec.Github = new Apps_github_source_spec
+            workerSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
@@ -473,80 +425,60 @@ public static class AppSpecGenerator
             };
 
             // Calculate source directory from project path relative to repo root
-            var projectSourceDir = GetProjectSourceDir(project, gitInfo.RepoRootPath);
-            workerSpec.SourceDir = sourceDir ?? projectSourceDir;
-            workerSpec.EnvironmentSlug = environmentSlug ?? "dotnet";
-        }
-        else if (environmentSlug is not null)
-        {
-            workerSpec.EnvironmentSlug = environmentSlug;
-        }
-
-        // Apply sourceDir if set but not already applied
-        if (sourceDir is not null && workerSpec.SourceDir is null)
-        {
-            workerSpec.SourceDir = sourceDir;
+            workerSpec.SourceDir ??= GetProjectSourceDir(project, gitInfo.RepoRootPath);
+            workerSpec.EnvironmentSlug ??= "dotnet";
         }
 
         return workerSpec;
     }
 
+    /// <summary>
+    /// Creates a shallow clone of an App_worker_spec to avoid modifying the original.
+    /// </summary>
+    private static App_worker_spec CloneWorkerSpec(App_worker_spec source)
+    {
+        return new App_worker_spec
+        {
+            Name = source.Name,
+            InstanceCount = source.InstanceCount,
+            InstanceSizeSlug = source.InstanceSizeSlug,
+            BuildCommand = source.BuildCommand,
+            RunCommand = source.RunCommand,
+            EnvironmentSlug = source.EnvironmentSlug,
+            SourceDir = source.SourceDir,
+            Github = source.Github,
+            Gitlab = source.Gitlab,
+            Bitbucket = source.Bitbucket,
+            Image = source.Image,
+            Envs = source.Envs,
+            LogDestinations = source.LogDestinations,
+            Termination = source.Termination,
+            Autoscaling = source.Autoscaling
+        };
+    }
+
     private static App_service_spec GenerateContainerServiceSpec(ContainerResource container, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Start with defaults, getting the port from endpoint annotations if available
-        var instanceCount = 1;
-        var instanceSizeSlug = "apps-s-1vcpu-0.5gb";
-        var httpPort = GetHttpPort(container);
-        string? healthCheckPath = null;
-        string? environmentSlug = null;
-        string? buildCommand = null;
-        string? runCommand = null;
-
-        // Check for AppServiceAnnotation and apply configuration
+        // Get user-configured spec from annotation, or create new one
+        App_service_spec serviceSpec;
         if (container.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var spec = serviceAnnotations.First().ServiceSpec;
-            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
-            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
-            // Only override port if explicitly set
-            if (spec.HttpPort > 0) httpPort = (int)spec.HttpPort;
-            healthCheckPath = spec.HealthCheck?.HttpPath;
-            environmentSlug = spec.EnvironmentSlug;
-            buildCommand = spec.BuildCommand;
-            runCommand = spec.RunCommand;
+            // Clone the user's spec to avoid modifying the original
+            serviceSpec = CloneServiceSpec(serviceAnnotations.First().ServiceSpec);
+        }
+        else
+        {
+            serviceSpec = new App_service_spec();
         }
 
-        var serviceSpec = new App_service_spec
-        {
-            Name = SanitizeName(container.Name),
-            HttpPort = httpPort,
-            InstanceCount = instanceCount,
-            InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
-            { 
-                String = instanceSizeSlug 
-            }
+        // Apply defaults for unset values
+        serviceSpec.Name ??= SanitizeName(container.Name);
+        serviceSpec.HttpPort ??= GetHttpPort(container);
+        serviceSpec.InstanceCount ??= 1;
+        serviceSpec.InstanceSizeSlug ??= new App_service_spec.App_service_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-0.5gb" 
         };
-
-        // Apply optional settings
-        if (healthCheckPath is not null)
-        {
-            serviceSpec.HealthCheck = new App_service_spec_health_check
-            {
-                HttpPath = healthCheckPath
-            };
-        }
-        if (environmentSlug is not null)
-        {
-            serviceSpec.EnvironmentSlug = environmentSlug;
-        }
-        if (buildCommand is not null)
-        {
-            serviceSpec.BuildCommand = buildCommand;
-        }
-        if (runCommand is not null)
-        {
-            serviceSpec.RunCommand = runCommand;
-        }
 
         // Determine deployment source
         if (container.TryGetAnnotationsOfType<PublishAsContainerImageAnnotation>(out var containerAnnotations))
@@ -566,7 +498,7 @@ public static class AppSpecGenerator
         else if (gitInfo?.Repository is not null && container.TryGetAnnotationsOfType<AppServiceAnnotation>(out _))
         {
             // Source-based deployment when marked with PublishAsAppService and git info is available
-            serviceSpec.Github = new Apps_github_source_spec
+            serviceSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
@@ -574,14 +506,7 @@ public static class AppSpecGenerator
             };
 
             // Calculate source directory - for containers, use the configured source dir or try to find it
-            var sourceDir = serviceSpec.SourceDir;
-            if (sourceDir is null)
-            {
-                // Try to determine source dir from the container's working directory or annotations
-                sourceDir = GetContainerSourceDir(container, gitInfo.RepoRootPath);
-            }
-            serviceSpec.SourceDir = sourceDir;
-            serviceSpec.EnvironmentSlug = environmentSlug;
+            serviceSpec.SourceDir ??= GetContainerSourceDir(container, gitInfo.RepoRootPath);
         }
         else if (container.TryGetContainerImageName(out var imageName))
         {
@@ -606,20 +531,20 @@ public static class AppSpecGenerator
         // Check AppServiceAnnotation for configured source dir
         if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var spec = serviceAnnotations.First().ServiceSpec;
-            if (spec.SourceDir is not null)
+            var sourceDir = serviceAnnotations.First().ServiceSpec.SourceDir;
+            if (sourceDir is not null)
             {
-                return spec.SourceDir;
+                return sourceDir;
             }
         }
 
         // Check AppWorkerAnnotation for configured source dir
         if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var spec = workerAnnotations.First().WorkerSpec;
-            if (spec.SourceDir is not null)
+            var sourceDir = workerAnnotations.First().WorkerSpec.SourceDir;
+            if (sourceDir is not null)
             {
-                return spec.SourceDir;
+                return sourceDir;
             }
         }
 
@@ -641,47 +566,25 @@ public static class AppSpecGenerator
 
     private static App_worker_spec GenerateContainerWorkerSpec(ContainerResource container, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Start with defaults
-        var instanceCount = 1;
-        var instanceSizeSlug = "apps-s-1vcpu-0.5gb";
-        string? environmentSlug = null;
-        string? buildCommand = null;
-        string? runCommand = null;
-
-        // Check for AppWorkerAnnotation and apply configuration
+        // Get user-configured spec from annotation, or create new one
+        App_worker_spec workerSpec;
         if (container.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var spec = workerAnnotations.First().WorkerSpec;
-            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
-            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
-            environmentSlug = spec.EnvironmentSlug;
-            buildCommand = spec.BuildCommand;
-            runCommand = spec.RunCommand;
+            // Clone the user's spec to avoid modifying the original
+            workerSpec = CloneWorkerSpec(workerAnnotations.First().WorkerSpec);
+        }
+        else
+        {
+            workerSpec = new App_worker_spec();
         }
 
-        var workerSpec = new App_worker_spec
-        {
-            Name = SanitizeName(container.Name),
-            InstanceCount = instanceCount,
-            InstanceSizeSlug = new App_worker_spec.App_worker_spec_instance_size_slug 
-            { 
-                String = instanceSizeSlug 
-            }
+        // Apply defaults for unset values
+        workerSpec.Name ??= SanitizeName(container.Name);
+        workerSpec.InstanceCount ??= 1;
+        workerSpec.InstanceSizeSlug ??= new App_worker_spec.App_worker_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-0.5gb" 
         };
-
-        // Apply optional settings
-        if (environmentSlug is not null)
-        {
-            workerSpec.EnvironmentSlug = environmentSlug;
-        }
-        if (buildCommand is not null)
-        {
-            workerSpec.BuildCommand = buildCommand;
-        }
-        if (runCommand is not null)
-        {
-            workerSpec.RunCommand = runCommand;
-        }
 
         // Determine deployment source
         if (container.TryGetAnnotationsOfType<PublishAsContainerImageAnnotation>(out var containerAnnotations))
@@ -701,19 +604,14 @@ public static class AppSpecGenerator
         else if (gitInfo?.Repository is not null && container.TryGetAnnotationsOfType<AppWorkerAnnotation>(out _))
         {
             // Source-based deployment when marked with PublishAsAppWorker and git info is available
-            workerSpec.Github = new Apps_github_source_spec
+            workerSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
 
-            var sourceDir = GetContainerSourceDir(container, gitInfo.RepoRootPath);
-            if (sourceDir is not null)
-            {
-                workerSpec.SourceDir = sourceDir;
-            }
-            workerSpec.EnvironmentSlug = environmentSlug;
+            workerSpec.SourceDir ??= GetContainerSourceDir(container, gitInfo.RepoRootPath);
         }
         else if (container.TryGetContainerImageName(out var imageName))
         {
@@ -735,58 +633,26 @@ public static class AppSpecGenerator
     /// </summary>
     private static App_service_spec GenerateGenericServiceSpec(IResource resource, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Start with defaults, getting the port from endpoint annotations if available
-        var instanceCount = 1;
-        var instanceSizeSlug = "apps-s-1vcpu-0.5gb";
-        var httpPort = GetHttpPort(resource);
-        string? healthCheckPath = null;
-        string? environmentSlug = null;
-        string? sourceDir = null;
-        string? buildCommand = null;
-        string? runCommand = null;
-
-        // Apply configuration from AppServiceAnnotation
+        // Get user-configured spec from annotation, or create new one
+        App_service_spec serviceSpec;
         if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var spec = serviceAnnotations.First().ServiceSpec;
-            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
-            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
-            // Only override port if explicitly set
-            if (spec.HttpPort > 0) httpPort = (int)spec.HttpPort;
-            healthCheckPath = spec.HealthCheck?.HttpPath;
-            environmentSlug = spec.EnvironmentSlug;
-            sourceDir = spec.SourceDir;
-            buildCommand = spec.BuildCommand;
-            runCommand = spec.RunCommand;
+            // Clone the user's spec to avoid modifying the original
+            serviceSpec = CloneServiceSpec(serviceAnnotations.First().ServiceSpec);
+        }
+        else
+        {
+            serviceSpec = new App_service_spec();
         }
 
-        var serviceSpec = new App_service_spec
-        {
-            Name = SanitizeName(resource.Name),
-            HttpPort = httpPort,
-            InstanceCount = instanceCount,
-            InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
-            { 
-                String = instanceSizeSlug 
-            }
+        // Apply defaults for unset values
+        serviceSpec.Name ??= SanitizeName(resource.Name);
+        serviceSpec.HttpPort ??= GetHttpPort(resource);
+        serviceSpec.InstanceCount ??= 1;
+        serviceSpec.InstanceSizeSlug ??= new App_service_spec.App_service_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-0.5gb" 
         };
-
-        // Apply optional settings
-        if (healthCheckPath is not null)
-        {
-            serviceSpec.HealthCheck = new App_service_spec_health_check
-            {
-                HttpPath = healthCheckPath
-            };
-        }
-        if (buildCommand is not null)
-        {
-            serviceSpec.BuildCommand = buildCommand;
-        }
-        if (runCommand is not null)
-        {
-            serviceSpec.RunCommand = runCommand;
-        }
 
         // Determine deployment source
         if (resource.TryGetAnnotationsOfType<PublishAsContainerImageAnnotation>(out var containerAnnotations))
@@ -805,33 +671,23 @@ public static class AppSpecGenerator
         else if (resource.TryGetAnnotationsOfType<GitHubSourceAnnotation>(out var gitHubAnnotations))
         {
             var gitHubAnnotation = gitHubAnnotations.First();
-            serviceSpec.Github = new Apps_github_source_spec
+            serviceSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            if (gitHubAnnotation.Config.SourceDir is not null)
-            {
-                serviceSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
-            }
-            serviceSpec.EnvironmentSlug = environmentSlug;
+            serviceSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
         }
         else if (gitInfo?.Repository is not null)
         {
-            serviceSpec.Github = new Apps_github_source_spec
+            serviceSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
-            serviceSpec.SourceDir = sourceDir;
-            serviceSpec.EnvironmentSlug = environmentSlug;
-        }
-        else if (environmentSlug is not null)
-        {
-            serviceSpec.EnvironmentSlug = environmentSlug;
         }
 
         return serviceSpec;
@@ -842,45 +698,25 @@ public static class AppSpecGenerator
     /// </summary>
     private static App_worker_spec GenerateGenericWorkerSpec(IResource resource, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Start with defaults
-        var instanceCount = 1;
-        var instanceSizeSlug = "apps-s-1vcpu-0.5gb";
-        string? environmentSlug = null;
-        string? sourceDir = null;
-        string? buildCommand = null;
-        string? runCommand = null;
-
-        // Apply configuration from AppWorkerAnnotation
+        // Get user-configured spec from annotation, or create new one
+        App_worker_spec workerSpec;
         if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var spec = workerAnnotations.First().WorkerSpec;
-            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
-            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
-            environmentSlug = spec.EnvironmentSlug;
-            sourceDir = spec.SourceDir;
-            buildCommand = spec.BuildCommand;
-            runCommand = spec.RunCommand;
+            // Clone the user's spec to avoid modifying the original
+            workerSpec = CloneWorkerSpec(workerAnnotations.First().WorkerSpec);
+        }
+        else
+        {
+            workerSpec = new App_worker_spec();
         }
 
-        var workerSpec = new App_worker_spec
-        {
-            Name = SanitizeName(resource.Name),
-            InstanceCount = instanceCount,
-            InstanceSizeSlug = new App_worker_spec.App_worker_spec_instance_size_slug 
-            { 
-                String = instanceSizeSlug 
-            }
+        // Apply defaults for unset values
+        workerSpec.Name ??= SanitizeName(resource.Name);
+        workerSpec.InstanceCount ??= 1;
+        workerSpec.InstanceSizeSlug ??= new App_worker_spec.App_worker_spec_instance_size_slug 
+        { 
+            String = "apps-s-1vcpu-0.5gb" 
         };
-
-        // Apply optional settings
-        if (buildCommand is not null)
-        {
-            workerSpec.BuildCommand = buildCommand;
-        }
-        if (runCommand is not null)
-        {
-            workerSpec.RunCommand = runCommand;
-        }
 
         // Determine deployment source
         if (resource.TryGetAnnotationsOfType<PublishAsContainerImageAnnotation>(out var containerAnnotations))
@@ -899,33 +735,23 @@ public static class AppSpecGenerator
         else if (resource.TryGetAnnotationsOfType<GitHubSourceAnnotation>(out var gitHubAnnotations))
         {
             var gitHubAnnotation = gitHubAnnotations.First();
-            workerSpec.Github = new Apps_github_source_spec
+            workerSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            if (gitHubAnnotation.Config.SourceDir is not null)
-            {
-                workerSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
-            }
-            workerSpec.EnvironmentSlug = environmentSlug;
+            workerSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
         }
         else if (gitInfo?.Repository is not null)
         {
-            workerSpec.Github = new Apps_github_source_spec
+            workerSpec.Github ??= new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
-            workerSpec.SourceDir = sourceDir;
-            workerSpec.EnvironmentSlug = environmentSlug;
-        }
-        else if (environmentSlug is not null)
-        {
-            workerSpec.EnvironmentSlug = environmentSlug;
         }
 
         return workerSpec;
@@ -1132,8 +958,12 @@ public static class AppSpecGenerator
                 return null;
             }
 
-            // Get the current branch
-            var branch = RunGitCommand(repoRoot, "rev-parse --abbrev-ref HEAD") ?? "main";
+            // Get the current branch (fall back to "main" if detached HEAD or empty)
+            var branch = RunGitCommand(repoRoot, "rev-parse --abbrev-ref HEAD");
+            if (string.IsNullOrEmpty(branch) || branch == "HEAD")
+            {
+                branch = "main";
+            }
 
             return new GitRepoInfo(repository, branch, repoRoot);
         }
@@ -1148,7 +978,9 @@ public static class AppSpecGenerator
         var currentDir = new DirectoryInfo(startPath);
         while (currentDir is not null)
         {
-            if (Directory.Exists(Path.Combine(currentDir.FullName, ".git")))
+            var gitPath = Path.Combine(currentDir.FullName, ".git");
+            // Check for both .git directory (regular repo) and .git file (worktree)
+            if (Directory.Exists(gitPath) || File.Exists(gitPath))
             {
                 return currentDir.FullName;
             }
