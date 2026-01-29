@@ -112,7 +112,7 @@ public static class AppPlatformExtensions
     ///     .PublishAsAppService(service =>
     ///     {
     ///         service.Instance_count = 2;
-    ///         service.Instance_size_slug = "apps-s-1vcpu-1gb";
+    ///         service.Instance_size_slug = App_service_spec_instance_size_slug.Apps_s_1vcpu_1gb;
     ///         service.Http_port = 8080;
     ///     });
     /// </code>
@@ -124,10 +124,7 @@ public static class AppPlatformExtensions
         // Ensure the publisher resource is added
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
-        var serviceSpec = new DOModels.App_service_spec();
-        configure?.Invoke(serviceSpec);
-        
-        var annotation = new AppServiceAnnotation(serviceSpec);
+        var annotation = new AppServiceAnnotation(configure);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -150,7 +147,7 @@ public static class AppPlatformExtensions
     ///     .PublishAsAppWorker(worker =>
     ///     {
     ///         worker.Instance_count = 1;
-    ///         worker.Instance_size_slug = "apps-s-1vcpu-0.5gb";
+    ///         worker.Instance_size_slug = App_worker_spec_instance_size_slug.Apps_s_1vcpu_0_5gb;
     ///     });
     /// </code>
     /// </example>
@@ -161,10 +158,7 @@ public static class AppPlatformExtensions
         // Ensure the publisher resource is added
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
-        var workerSpec = new DOModels.App_worker_spec();
-        configure?.Invoke(workerSpec);
-        
-        var annotation = new AppWorkerAnnotation(workerSpec);
+        var annotation = new AppWorkerAnnotation(configure);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -208,14 +202,14 @@ public static class AppPlatformExtensions
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="appName">The name of the App Platform application.</param>
     /// <param name="region">Optional region for deployment (e.g., "nyc", "sfo", "ams"). Defaults to "nyc".</param>
-    /// <param name="configureAppSpec">Optional callback to configure the App Platform app spec using the InfinityFlow model.</param>
+    /// <param name="configure">Optional callback to configure the App Platform app spec using the InfinityFlow model.</param>
     /// <returns>The distributed application builder for chaining.</returns>
     /// <example>
     /// <code>
     /// var builder = DistributedApplication.CreateBuilder(args);
-    /// builder.WithAppPlatformDeploySupport("my-awesome-app", region: "sfo", configureAppSpec: spec =>
+    /// builder.WithAppPlatformDeploySupport("my-awesome-app", region: "sfo", configure: spec =>
     /// {
-    ///     spec.Features = [new() { Name = "buildpack-stack", Value = "ubuntu-22" }];
+    ///     spec.Features = ["buildpack-stack=ubuntu-22"];
     /// });
     /// 
     /// builder.AddProject&lt;Projects.MyApi&gt;("api")
@@ -226,7 +220,7 @@ public static class AppPlatformExtensions
         this IDistributedApplicationBuilder builder,
         string? appName = null,
         string? region = null,
-        Action<DOModels.App_spec>? configureAppSpec = null)
+        Action<DOModels.App_spec>? configure = null)
     {
         var publisherBuilder = builder.AddAppPlatformPublisher();
         
@@ -239,11 +233,9 @@ public static class AppPlatformExtensions
         {
             publisherBuilder.WithAnnotation(new AppPlatformRegionAnnotation(region));
         }
-        
-        // Add app spec configuration annotation if provided
-        if (configureAppSpec is not null)
+        if (configure is not null)
         {
-            publisherBuilder.WithAnnotation(new AppSpecConfigurationAnnotation(configureAppSpec));
+            publisherBuilder.WithAnnotation(new AppSpecConfigurationAnnotation(configure));
         }
         
         return builder;
@@ -396,35 +388,64 @@ internal sealed class AppPlatformAppNameAnnotation(string appName) : IResourceAn
 
 /// <summary>
 /// Annotation marking a resource as an App Platform service.
+/// Contains an optional callback to configure the service spec.
 /// </summary>
-public sealed class AppServiceAnnotation(DOModels.App_service_spec serviceSpec) : IResourceAnnotation
+public sealed class AppServiceAnnotation : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the service spec from the InfinityFlow model.
+    /// Creates a new service annotation with an optional configuration callback.
     /// </summary>
-    public DOModels.App_service_spec ServiceSpec { get; } = serviceSpec;
+    /// <param name="configure">Optional callback to configure the service spec.</param>
+    public AppServiceAnnotation(Action<DOModels.App_service_spec>? configure = null)
+    {
+        Configure = configure;
+    }
+
+    /// <summary>
+    /// Gets the callback to configure the service spec.
+    /// </summary>
+    public Action<DOModels.App_service_spec>? Configure { get; }
 }
 
 /// <summary>
 /// Annotation marking a resource as an App Platform worker.
+/// Contains an optional callback to configure the worker spec.
 /// </summary>
-public sealed class AppWorkerAnnotation(DOModels.App_worker_spec workerSpec) : IResourceAnnotation
+public sealed class AppWorkerAnnotation : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the worker spec from the InfinityFlow model.
+    /// Creates a new worker annotation with an optional configuration callback.
     /// </summary>
-    public DOModels.App_worker_spec WorkerSpec { get; } = workerSpec;
+    /// <param name="configure">Optional callback to configure the worker spec.</param>
+    public AppWorkerAnnotation(Action<DOModels.App_worker_spec>? configure = null)
+    {
+        Configure = configure;
+    }
+
+    /// <summary>
+    /// Gets the callback to configure the worker spec.
+    /// </summary>
+    public Action<DOModels.App_worker_spec>? Configure { get; }
 }
 
 /// <summary>
 /// Annotation containing a callback to configure the App Platform app spec.
 /// </summary>
-internal sealed class AppSpecConfigurationAnnotation(Action<DOModels.App_spec> configure) : IResourceAnnotation
+internal sealed class AppSpecConfigurationAnnotation : IResourceAnnotation
 {
+    /// <summary>
+    /// Creates a new app spec configuration annotation.
+    /// </summary>
+    /// <param name="configure">Callback to configure the app spec.</param>
+    public AppSpecConfigurationAnnotation(Action<DOModels.App_spec> configure)
+    {
+        Configure = configure;
+    }
+
     /// <summary>
     /// Gets the callback to configure the app spec.
     /// </summary>
-    public Action<DOModels.App_spec> Configure { get; } = configure;
+    public Action<DOModels.App_spec> Configure { get; }
 }
 
 /// <summary>

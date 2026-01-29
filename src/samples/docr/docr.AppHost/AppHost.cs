@@ -22,10 +22,7 @@ var server = builder.AddProject<Projects.docr_Web_Server>("server")
         { 
             String = "apps-s-1vcpu-1gb" 
         };
-        service.HealthCheck = new App_service_spec_health_check
-        {
-            HttpPath = "/health"
-        };
+        service.HealthCheck = new App_service_spec_health_check { HttpPath = "/health" };
     });
 
 // Add the Vite frontend - uses source-based deployment with node-js buildpack

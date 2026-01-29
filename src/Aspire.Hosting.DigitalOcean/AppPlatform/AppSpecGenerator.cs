@@ -238,25 +238,16 @@ public static class AppSpecGenerator
 
     private static App_service_spec GenerateServiceSpec(ProjectResource project, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Get user-configured spec from annotation, or create new one
-        App_service_spec serviceSpec;
-        if (project.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
+        // Create the spec with Aspire-inferred defaults
+        var serviceSpec = new App_service_spec
         {
-            // Clone the user's spec to avoid modifying the original
-            serviceSpec = CloneServiceSpec(serviceAnnotations.First().ServiceSpec);
-        }
-        else
-        {
-            serviceSpec = new App_service_spec();
-        }
-
-        // Apply defaults for unset values
-        serviceSpec.Name ??= SanitizeName(project.Name);
-        serviceSpec.HttpPort ??= GetHttpPort(project);
-        serviceSpec.InstanceCount ??= 1;
-        serviceSpec.InstanceSizeSlug ??= new App_service_spec.App_service_spec_instance_size_slug 
-        { 
-            String = "apps-s-1vcpu-0.5gb" 
+            Name = SanitizeName(project.Name),
+            HttpPort = GetHttpPort(project),
+            InstanceCount = 1,
+            InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
+            { 
+                String = "apps-s-1vcpu-0.5gb" 
+            }
         };
 
         // Determine deployment source: container image or source-based
@@ -278,22 +269,25 @@ public static class AppSpecGenerator
         {
             // Explicit GitHub source annotation
             var gitHubAnnotation = gitHubAnnotations.First();
-            serviceSpec.Github ??= new Apps_github_source_spec
+            serviceSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            serviceSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
-            
+            if (gitHubAnnotation.Config.SourceDir is not null)
+            {
+                serviceSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
+            }
+
             // .NET projects use the dotnet buildpack
-            serviceSpec.EnvironmentSlug ??= "dotnet";
+            serviceSpec.EnvironmentSlug = "dotnet";
         }
         else if (gitInfo?.Repository is not null)
         {
             // Source-based deployment from current git repository
-            serviceSpec.Github ??= new Apps_github_source_spec
+            serviceSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
@@ -301,42 +295,19 @@ public static class AppSpecGenerator
             };
 
             // Calculate source directory from project path relative to repo root
-            serviceSpec.SourceDir ??= GetProjectSourceDir(project, gitInfo.RepoRootPath);
+            serviceSpec.SourceDir = GetProjectSourceDir(project, gitInfo.RepoRootPath);
 
             // .NET projects use the dotnet buildpack
-            serviceSpec.EnvironmentSlug ??= "dotnet";
+            serviceSpec.EnvironmentSlug = "dotnet";
+        }
+
+        // Apply user configuration callback last to allow full override
+        if (project.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
+        {
+            serviceAnnotations.First().Configure?.Invoke(serviceSpec);
         }
 
         return serviceSpec;
-    }
-
-    /// <summary>
-    /// Creates a shallow clone of an App_service_spec to avoid modifying the original.
-    /// </summary>
-    private static App_service_spec CloneServiceSpec(App_service_spec source)
-    {
-        return new App_service_spec
-        {
-            Name = source.Name,
-            HttpPort = source.HttpPort,
-            InstanceCount = source.InstanceCount,
-            InstanceSizeSlug = source.InstanceSizeSlug,
-            HealthCheck = source.HealthCheck,
-            BuildCommand = source.BuildCommand,
-            RunCommand = source.RunCommand,
-            EnvironmentSlug = source.EnvironmentSlug,
-            SourceDir = source.SourceDir,
-            Github = source.Github,
-            Gitlab = source.Gitlab,
-            Bitbucket = source.Bitbucket,
-            Image = source.Image,
-            Envs = source.Envs,
-            Cors = source.Cors,
-            Autoscaling = source.Autoscaling,
-            LogDestinations = source.LogDestinations,
-            Termination = source.Termination,
-            InternalPorts = source.InternalPorts
-        };
     }
 
     /// <summary>
@@ -365,24 +336,15 @@ public static class AppSpecGenerator
 
     private static App_worker_spec GenerateWorkerSpec(ProjectResource project, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Get user-configured spec from annotation, or create new one
-        App_worker_spec workerSpec;
-        if (project.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
+        // Create the spec with Aspire-inferred defaults
+        var workerSpec = new App_worker_spec
         {
-            // Clone the user's spec to avoid modifying the original
-            workerSpec = CloneWorkerSpec(workerAnnotations.First().WorkerSpec);
-        }
-        else
-        {
-            workerSpec = new App_worker_spec();
-        }
-
-        // Apply defaults for unset values
-        workerSpec.Name ??= SanitizeName(project.Name);
-        workerSpec.InstanceCount ??= 1;
-        workerSpec.InstanceSizeSlug ??= new App_worker_spec.App_worker_spec_instance_size_slug 
-        { 
-            String = "apps-s-1vcpu-0.5gb" 
+            Name = SanitizeName(project.Name),
+            InstanceCount = 1,
+            InstanceSizeSlug = new App_worker_spec.App_worker_spec_instance_size_slug 
+            { 
+                String = "apps-s-1vcpu-0.5gb" 
+            }
         };
 
         // Determine deployment source: container image or source-based
@@ -404,20 +366,24 @@ public static class AppSpecGenerator
         {
             // Explicit GitHub source annotation
             var gitHubAnnotation = gitHubAnnotations.First();
-            workerSpec.Github ??= new Apps_github_source_spec
+            workerSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            workerSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
-            workerSpec.EnvironmentSlug ??= "dotnet";
+            if (gitHubAnnotation.Config.SourceDir is not null)
+            {
+                workerSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
+            }
+
+            workerSpec.EnvironmentSlug = "dotnet";
         }
         else if (gitInfo?.Repository is not null)
         {
             // Source-based deployment from current git repository
-            workerSpec.Github ??= new Apps_github_source_spec
+            workerSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
@@ -425,59 +391,31 @@ public static class AppSpecGenerator
             };
 
             // Calculate source directory from project path relative to repo root
-            workerSpec.SourceDir ??= GetProjectSourceDir(project, gitInfo.RepoRootPath);
-            workerSpec.EnvironmentSlug ??= "dotnet";
+            workerSpec.SourceDir = GetProjectSourceDir(project, gitInfo.RepoRootPath);
+            workerSpec.EnvironmentSlug = "dotnet";
+        }
+
+        // Apply user configuration callback last to allow full override
+        if (project.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
+        {
+            workerAnnotations.First().Configure?.Invoke(workerSpec);
         }
 
         return workerSpec;
     }
 
-    /// <summary>
-    /// Creates a shallow clone of an App_worker_spec to avoid modifying the original.
-    /// </summary>
-    private static App_worker_spec CloneWorkerSpec(App_worker_spec source)
-    {
-        return new App_worker_spec
-        {
-            Name = source.Name,
-            InstanceCount = source.InstanceCount,
-            InstanceSizeSlug = source.InstanceSizeSlug,
-            BuildCommand = source.BuildCommand,
-            RunCommand = source.RunCommand,
-            EnvironmentSlug = source.EnvironmentSlug,
-            SourceDir = source.SourceDir,
-            Github = source.Github,
-            Gitlab = source.Gitlab,
-            Bitbucket = source.Bitbucket,
-            Image = source.Image,
-            Envs = source.Envs,
-            LogDestinations = source.LogDestinations,
-            Termination = source.Termination,
-            Autoscaling = source.Autoscaling
-        };
-    }
-
     private static App_service_spec GenerateContainerServiceSpec(ContainerResource container, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Get user-configured spec from annotation, or create new one
-        App_service_spec serviceSpec;
-        if (container.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
+        // Create the spec with Aspire-inferred defaults
+        var serviceSpec = new App_service_spec
         {
-            // Clone the user's spec to avoid modifying the original
-            serviceSpec = CloneServiceSpec(serviceAnnotations.First().ServiceSpec);
-        }
-        else
-        {
-            serviceSpec = new App_service_spec();
-        }
-
-        // Apply defaults for unset values
-        serviceSpec.Name ??= SanitizeName(container.Name);
-        serviceSpec.HttpPort ??= GetHttpPort(container);
-        serviceSpec.InstanceCount ??= 1;
-        serviceSpec.InstanceSizeSlug ??= new App_service_spec.App_service_spec_instance_size_slug 
-        { 
-            String = "apps-s-1vcpu-0.5gb" 
+            Name = SanitizeName(container.Name),
+            HttpPort = GetHttpPort(container),
+            InstanceCount = 1,
+            InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
+            { 
+                String = "apps-s-1vcpu-0.5gb" 
+            }
         };
 
         // Determine deployment source
@@ -498,15 +436,15 @@ public static class AppSpecGenerator
         else if (gitInfo?.Repository is not null && container.TryGetAnnotationsOfType<AppServiceAnnotation>(out _))
         {
             // Source-based deployment when marked with PublishAsAppService and git info is available
-            serviceSpec.Github ??= new Apps_github_source_spec
+            serviceSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
 
-            // Calculate source directory - for containers, use the configured source dir or try to find it
-            serviceSpec.SourceDir ??= GetContainerSourceDir(container, gitInfo.RepoRootPath);
+            // Calculate source directory from container's working directory
+            serviceSpec.SourceDir = GetContainerSourceDir(container, gitInfo.RepoRootPath);
         }
         else if (container.TryGetContainerImageName(out var imageName))
         {
@@ -520,6 +458,12 @@ public static class AppSpecGenerator
             };
         }
 
+        // Apply user configuration callback last to allow full override
+        if (container.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
+        {
+            serviceAnnotations.First().Configure?.Invoke(serviceSpec);
+        }
+
         return serviceSpec;
     }
 
@@ -528,26 +472,6 @@ public static class AppSpecGenerator
     /// </summary>
     private static string? GetContainerSourceDir(IResource resource, string repoRootPath)
     {
-        // Check AppServiceAnnotation for configured source dir
-        if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
-        {
-            var sourceDir = serviceAnnotations.First().ServiceSpec.SourceDir;
-            if (sourceDir is not null)
-            {
-                return sourceDir;
-            }
-        }
-
-        // Check AppWorkerAnnotation for configured source dir
-        if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
-        {
-            var sourceDir = workerAnnotations.First().WorkerSpec.SourceDir;
-            if (sourceDir is not null)
-            {
-                return sourceDir;
-            }
-        }
-
         // Try to get the working directory from ExecutableAnnotation
         if (resource.TryGetAnnotationsOfType<ExecutableAnnotation>(out var executableAnnotations))
         {
@@ -566,24 +490,15 @@ public static class AppSpecGenerator
 
     private static App_worker_spec GenerateContainerWorkerSpec(ContainerResource container, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Get user-configured spec from annotation, or create new one
-        App_worker_spec workerSpec;
-        if (container.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
+        // Create the spec with Aspire-inferred defaults
+        var workerSpec = new App_worker_spec
         {
-            // Clone the user's spec to avoid modifying the original
-            workerSpec = CloneWorkerSpec(workerAnnotations.First().WorkerSpec);
-        }
-        else
-        {
-            workerSpec = new App_worker_spec();
-        }
-
-        // Apply defaults for unset values
-        workerSpec.Name ??= SanitizeName(container.Name);
-        workerSpec.InstanceCount ??= 1;
-        workerSpec.InstanceSizeSlug ??= new App_worker_spec.App_worker_spec_instance_size_slug 
-        { 
-            String = "apps-s-1vcpu-0.5gb" 
+            Name = SanitizeName(container.Name),
+            InstanceCount = 1,
+            InstanceSizeSlug = new App_worker_spec.App_worker_spec_instance_size_slug 
+            { 
+                String = "apps-s-1vcpu-0.5gb" 
+            }
         };
 
         // Determine deployment source
@@ -604,14 +519,14 @@ public static class AppSpecGenerator
         else if (gitInfo?.Repository is not null && container.TryGetAnnotationsOfType<AppWorkerAnnotation>(out _))
         {
             // Source-based deployment when marked with PublishAsAppWorker and git info is available
-            workerSpec.Github ??= new Apps_github_source_spec
+            workerSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
 
-            workerSpec.SourceDir ??= GetContainerSourceDir(container, gitInfo.RepoRootPath);
+            workerSpec.SourceDir = GetContainerSourceDir(container, gitInfo.RepoRootPath);
         }
         else if (container.TryGetContainerImageName(out var imageName))
         {
@@ -625,6 +540,12 @@ public static class AppSpecGenerator
             };
         }
 
+        // Apply user configuration callback last to allow full override
+        if (container.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
+        {
+            workerAnnotations.First().Configure?.Invoke(workerSpec);
+        }
+
         return workerSpec;
     }
 
@@ -633,25 +554,16 @@ public static class AppSpecGenerator
     /// </summary>
     private static App_service_spec GenerateGenericServiceSpec(IResource resource, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Get user-configured spec from annotation, or create new one
-        App_service_spec serviceSpec;
-        if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
+        // Create the spec with Aspire-inferred defaults
+        var serviceSpec = new App_service_spec
         {
-            // Clone the user's spec to avoid modifying the original
-            serviceSpec = CloneServiceSpec(serviceAnnotations.First().ServiceSpec);
-        }
-        else
-        {
-            serviceSpec = new App_service_spec();
-        }
-
-        // Apply defaults for unset values
-        serviceSpec.Name ??= SanitizeName(resource.Name);
-        serviceSpec.HttpPort ??= GetHttpPort(resource);
-        serviceSpec.InstanceCount ??= 1;
-        serviceSpec.InstanceSizeSlug ??= new App_service_spec.App_service_spec_instance_size_slug 
-        { 
-            String = "apps-s-1vcpu-0.5gb" 
+            Name = SanitizeName(resource.Name),
+            HttpPort = GetHttpPort(resource),
+            InstanceCount = 1,
+            InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
+            { 
+                String = "apps-s-1vcpu-0.5gb" 
+            }
         };
 
         // Determine deployment source
@@ -671,23 +583,33 @@ public static class AppSpecGenerator
         else if (resource.TryGetAnnotationsOfType<GitHubSourceAnnotation>(out var gitHubAnnotations))
         {
             var gitHubAnnotation = gitHubAnnotations.First();
-            serviceSpec.Github ??= new Apps_github_source_spec
+            serviceSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            serviceSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
+            if (gitHubAnnotation.Config.SourceDir is not null)
+            {
+                serviceSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
+            }
         }
         else if (gitInfo?.Repository is not null)
         {
-            serviceSpec.Github ??= new Apps_github_source_spec
+            serviceSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
+            serviceSpec.SourceDir = GetContainerSourceDir(resource, gitInfo.RepoRootPath);
+        }
+
+        // Apply user configuration callback last to allow full override
+        if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
+        {
+            serviceAnnotations.First().Configure?.Invoke(serviceSpec);
         }
 
         return serviceSpec;
@@ -698,24 +620,15 @@ public static class AppSpecGenerator
     /// </summary>
     private static App_worker_spec GenerateGenericWorkerSpec(IResource resource, string? registryName, GitRepoInfo? gitInfo)
     {
-        // Get user-configured spec from annotation, or create new one
-        App_worker_spec workerSpec;
-        if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
+        // Create the spec with Aspire-inferred defaults
+        var workerSpec = new App_worker_spec
         {
-            // Clone the user's spec to avoid modifying the original
-            workerSpec = CloneWorkerSpec(workerAnnotations.First().WorkerSpec);
-        }
-        else
-        {
-            workerSpec = new App_worker_spec();
-        }
-
-        // Apply defaults for unset values
-        workerSpec.Name ??= SanitizeName(resource.Name);
-        workerSpec.InstanceCount ??= 1;
-        workerSpec.InstanceSizeSlug ??= new App_worker_spec.App_worker_spec_instance_size_slug 
-        { 
-            String = "apps-s-1vcpu-0.5gb" 
+            Name = SanitizeName(resource.Name),
+            InstanceCount = 1,
+            InstanceSizeSlug = new App_worker_spec.App_worker_spec_instance_size_slug 
+            { 
+                String = "apps-s-1vcpu-0.5gb" 
+            }
         };
 
         // Determine deployment source
@@ -735,23 +648,33 @@ public static class AppSpecGenerator
         else if (resource.TryGetAnnotationsOfType<GitHubSourceAnnotation>(out var gitHubAnnotations))
         {
             var gitHubAnnotation = gitHubAnnotations.First();
-            workerSpec.Github ??= new Apps_github_source_spec
+            workerSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitHubAnnotation.Config.Repository,
                 Branch = gitHubAnnotation.Config.Branch,
                 DeployOnPush = gitHubAnnotation.Config.DeployOnPush
             };
 
-            workerSpec.SourceDir ??= gitHubAnnotation.Config.SourceDir;
+            if (gitHubAnnotation.Config.SourceDir is not null)
+            {
+                workerSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
+            }
         }
         else if (gitInfo?.Repository is not null)
         {
-            workerSpec.Github ??= new Apps_github_source_spec
+            workerSpec.Github = new Apps_github_source_spec
             {
                 Repo = gitInfo.Repository,
                 Branch = gitInfo.Branch,
                 DeployOnPush = true
             };
+            workerSpec.SourceDir = GetContainerSourceDir(resource, gitInfo.RepoRootPath);
+        }
+
+        // Apply user configuration callback last to allow full override
+        if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
+        {
+            workerAnnotations.First().Configure?.Invoke(workerSpec);
         }
 
         return workerSpec;
@@ -958,12 +881,8 @@ public static class AppSpecGenerator
                 return null;
             }
 
-            // Get the current branch (fall back to "main" if detached HEAD or empty)
-            var branch = RunGitCommand(repoRoot, "rev-parse --abbrev-ref HEAD");
-            if (string.IsNullOrEmpty(branch) || branch == "HEAD")
-            {
-                branch = "main";
-            }
+            // Get the current branch
+            var branch = RunGitCommand(repoRoot, "rev-parse --abbrev-ref HEAD") ?? "main";
 
             return new GitRepoInfo(repository, branch, repoRoot);
         }
@@ -979,7 +898,7 @@ public static class AppSpecGenerator
         while (currentDir is not null)
         {
             var gitPath = Path.Combine(currentDir.FullName, ".git");
-            // Check for both .git directory (regular repo) and .git file (worktree)
+            // Check for .git directory (normal repo) or .git file (worktree)
             if (Directory.Exists(gitPath) || File.Exists(gitPath))
             {
                 return currentDir.FullName;

@@ -54,13 +54,13 @@ public class AppPlatformPublisherResource : Aspire.Hosting.ApplicationModel.Reso
 
         // Generate the app spec using InfinityFlow.DigitalOcean.Client models
         var spec = AppSpecGenerator.Generate(appName, region, resourcesToPublish, registryName, gitInfo);
-        
-        // Apply any app spec configuration callback
+
+        // Apply any app-level configuration callback
         if (publisherResource?.TryGetAnnotationsOfType<AppSpecConfigurationAnnotation>(out var configAnnotations) == true)
         {
             configAnnotations.First().Configure(spec);
         }
-        
+
         var yaml = AppSpecGenerator.ToYaml(spec);
 
         // Get the output path from pipeline options
