@@ -103,7 +103,7 @@ public static class AppPlatformExtensions
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
     /// <param name="builder">The resource builder.</param>
-    /// <param name="configure">Optional callback to configure the App Platform service settings.</param>
+    /// <param name="configure">Optional callback to configure the App Platform service spec using the InfinityFlow model.</param>
     /// <returns>The resource builder for chaining.</returns>
     /// <example>
     /// <code>
@@ -111,23 +111,23 @@ public static class AppPlatformExtensions
     ///     .WithExternalHttpEndpoints()
     ///     .PublishAsAppService(service =>
     ///     {
-    ///         service.InstanceCount = 2;
-    ///         service.InstanceSizeSlug = "apps-s-1vcpu-1gb";
-    ///         service.HttpPort = 8080;
+    ///         service.Instance_count = 2;
+    ///         service.Instance_size_slug = "apps-s-1vcpu-1gb";
+    ///         service.Http_port = 8080;
     ///     });
     /// </code>
     /// </example>
     public static IResourceBuilder<T> PublishAsAppService<T>(
         this IResourceBuilder<T> builder,
-        Action<AppServiceConfiguration>? configure = null) where T : IResource
+        Action<DOModels.App_service_spec>? configure = null) where T : IResource
     {
         // Ensure the publisher resource is added
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
-        var config = new AppServiceConfiguration();
-        configure?.Invoke(config);
+        var spec = new DOModels.App_service_spec();
+        configure?.Invoke(spec);
         
-        var annotation = new AppServiceAnnotation(config);
+        var annotation = new AppServiceAnnotation(spec);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -142,29 +142,29 @@ public static class AppPlatformExtensions
     /// </summary>
     /// <typeparam name="T">The resource type.</typeparam>
     /// <param name="builder">The resource builder.</param>
-    /// <param name="configure">Optional callback to configure the App Platform worker settings.</param>
+    /// <param name="configure">Optional callback to configure the App Platform worker spec using the InfinityFlow model.</param>
     /// <returns>The resource builder for chaining.</returns>
     /// <example>
     /// <code>
     /// builder.AddProject&lt;Projects.MyWorker&gt;("worker")
     ///     .PublishAsAppWorker(worker =>
     ///     {
-    ///         worker.InstanceCount = 1;
-    ///         worker.InstanceSizeSlug = "apps-s-1vcpu-0.5gb";
+    ///         worker.Instance_count = 1;
+    ///         worker.Instance_size_slug = "apps-s-1vcpu-0.5gb";
     ///     });
     /// </code>
     /// </example>
     public static IResourceBuilder<T> PublishAsAppWorker<T>(
         this IResourceBuilder<T> builder,
-        Action<AppWorkerConfiguration>? configure = null) where T : IResource
+        Action<DOModels.App_worker_spec>? configure = null) where T : IResource
     {
         // Ensure the publisher resource is added
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
-        var config = new AppWorkerConfiguration();
-        configure?.Invoke(config);
+        var spec = new DOModels.App_worker_spec();
+        configure?.Invoke(spec);
         
-        var annotation = new AppWorkerAnnotation(config);
+        var annotation = new AppWorkerAnnotation(spec);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -208,11 +208,15 @@ public static class AppPlatformExtensions
     /// <param name="builder">The distributed application builder.</param>
     /// <param name="appName">The name of the App Platform application.</param>
     /// <param name="region">Optional region for deployment (e.g., "nyc", "sfo", "ams"). Defaults to "nyc".</param>
+    /// <param name="configureAppSpec">Optional callback to configure the entire App Platform app spec using the InfinityFlow model.</param>
     /// <returns>The distributed application builder for chaining.</returns>
     /// <example>
     /// <code>
     /// var builder = DistributedApplication.CreateBuilder(args);
-    /// builder.WithAppPlatformDeploySupport("my-awesome-app", region: "sfo");
+    /// builder.WithAppPlatformDeploySupport("my-awesome-app", region: "sfo", configureAppSpec: spec =>
+    /// {
+    ///     spec.Features = [new() { Name = "buildpack-stack", Value = "ubuntu-22" }];
+    /// });
     /// 
     /// builder.AddProject&lt;Projects.MyApi&gt;("api")
     ///     .PublishAsAppService();
@@ -221,7 +225,8 @@ public static class AppPlatformExtensions
     public static IDistributedApplicationBuilder WithAppPlatformDeploySupport(
         this IDistributedApplicationBuilder builder,
         string? appName = null,
-        string? region = null)
+        string? region = null,
+        Action<DOModels.App_spec>? configureAppSpec = null)
     {
         var publisherBuilder = builder.AddAppPlatformPublisher();
         
@@ -233,6 +238,12 @@ public static class AppPlatformExtensions
         if (region is not null)
         {
             publisherBuilder.WithAnnotation(new AppPlatformRegionAnnotation(region));
+        }
+        
+        // Add app spec configuration annotation if provided
+        if (configureAppSpec is not null)
+        {
+            publisherBuilder.WithAnnotation(new AppSpecConfigurationAnnotation(configureAppSpec));
         }
         
         return builder;
@@ -384,108 +395,36 @@ internal sealed class AppPlatformAppNameAnnotation(string appName) : IResourceAn
 }
 
 /// <summary>
-/// Configuration for an App Platform service.
-/// </summary>
-public sealed class AppServiceConfiguration
-{
-    /// <summary>
-    /// Gets or sets the number of instances to run. Default is 1.
-    /// </summary>
-    public int InstanceCount { get; set; } = 1;
-
-    /// <summary>
-    /// Gets or sets the instance size slug (e.g., "apps-s-1vcpu-0.5gb", "apps-s-1vcpu-1gb").
-    /// </summary>
-    public string InstanceSizeSlug { get; set; } = "apps-s-1vcpu-0.5gb";
-
-    /// <summary>
-    /// Gets or sets the HTTP port the service listens on.
-    /// If not set, the port will be inferred from the resource's endpoint annotations, or default to 8080.
-    /// </summary>
-    public int? HttpPort { get; set; }
-
-    /// <summary>
-    /// Gets or sets the health check path for the service.
-    /// </summary>
-    public string? HealthCheckPath { get; set; }
-
-    /// <summary>
-    /// Gets or sets the environment slug (e.g., "dotnet", "node-js", "python").
-    /// </summary>
-    public string? EnvironmentSlug { get; set; }
-
-    /// <summary>
-    /// Gets or sets the source directory within the repository.
-    /// </summary>
-    public string? SourceDir { get; set; }
-
-    /// <summary>
-    /// Gets or sets the build command.
-    /// </summary>
-    public string? BuildCommand { get; set; }
-
-    /// <summary>
-    /// Gets or sets the run command.
-    /// </summary>
-    public string? RunCommand { get; set; }
-}
-
-/// <summary>
-/// Configuration for an App Platform worker.
-/// </summary>
-public sealed class AppWorkerConfiguration
-{
-    /// <summary>
-    /// Gets or sets the number of instances to run. Default is 1.
-    /// </summary>
-    public int InstanceCount { get; set; } = 1;
-
-    /// <summary>
-    /// Gets or sets the instance size slug (e.g., "apps-s-1vcpu-0.5gb", "apps-s-1vcpu-1gb").
-    /// </summary>
-    public string InstanceSizeSlug { get; set; } = "apps-s-1vcpu-0.5gb";
-
-    /// <summary>
-    /// Gets or sets the environment slug (e.g., "dotnet", "node-js", "python").
-    /// </summary>
-    public string? EnvironmentSlug { get; set; }
-
-    /// <summary>
-    /// Gets or sets the source directory within the repository.
-    /// </summary>
-    public string? SourceDir { get; set; }
-
-    /// <summary>
-    /// Gets or sets the build command.
-    /// </summary>
-    public string? BuildCommand { get; set; }
-
-    /// <summary>
-    /// Gets or sets the run command.
-    /// </summary>
-    public string? RunCommand { get; set; }
-}
-
-/// <summary>
 /// Annotation marking a resource as an App Platform service.
 /// </summary>
-public sealed class AppServiceAnnotation(AppServiceConfiguration configuration) : IResourceAnnotation
+public sealed class AppServiceAnnotation(DOModels.App_service_spec serviceSpec) : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the service configuration.
+    /// Gets the service spec from InfinityFlow.DigitalOcean.Client.
     /// </summary>
-    public AppServiceConfiguration Configuration { get; } = configuration;
+    public DOModels.App_service_spec ServiceSpec { get; } = serviceSpec;
 }
 
 /// <summary>
 /// Annotation marking a resource as an App Platform worker.
 /// </summary>
-public sealed class AppWorkerAnnotation(AppWorkerConfiguration configuration) : IResourceAnnotation
+public sealed class AppWorkerAnnotation(DOModels.App_worker_spec workerSpec) : IResourceAnnotation
 {
     /// <summary>
-    /// Gets the worker configuration.
+    /// Gets the worker spec from InfinityFlow.DigitalOcean.Client.
     /// </summary>
-    public AppWorkerConfiguration Configuration { get; } = configuration;
+    public DOModels.App_worker_spec WorkerSpec { get; } = workerSpec;
+}
+
+/// <summary>
+/// Annotation containing the App Spec configuration callback.
+/// </summary>
+internal sealed class AppSpecConfigurationAnnotation(Action<DOModels.App_spec> configure) : IResourceAnnotation
+{
+    /// <summary>
+    /// Gets the callback to configure the App Spec.
+    /// </summary>
+    public Action<DOModels.App_spec> Configure { get; } = configure;
 }
 
 /// <summary>

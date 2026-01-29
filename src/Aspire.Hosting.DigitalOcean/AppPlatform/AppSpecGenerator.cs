@@ -251,19 +251,16 @@ public static class AppSpecGenerator
         // Check for AppServiceAnnotation and apply configuration (overrides defaults)
         if (project.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var config = serviceAnnotations.First().Configuration;
-            instanceCount = config.InstanceCount;
-            instanceSizeSlug = config.InstanceSizeSlug;
+            var spec = serviceAnnotations.First().ServiceSpec;
+            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
+            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
             // Only override port if explicitly set
-            if (config.HttpPort.HasValue)
-            {
-                httpPort = config.HttpPort.Value;
-            }
-            healthCheckPath = config.HealthCheckPath;
-            environmentSlug = config.EnvironmentSlug;
-            sourceDir = config.SourceDir;
-            buildCommand = config.BuildCommand;
-            runCommand = config.RunCommand;
+            if (spec.HttpPort > 0) httpPort = (int)spec.HttpPort;
+            healthCheckPath = spec.HealthCheck?.HttpPath;
+            environmentSlug = spec.EnvironmentSlug;
+            sourceDir = spec.SourceDir;
+            buildCommand = spec.BuildCommand;
+            runCommand = spec.RunCommand;
         }
 
         var serviceSpec = new App_service_spec
@@ -403,13 +400,13 @@ public static class AppSpecGenerator
         // Check for AppWorkerAnnotation and apply configuration
         if (project.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var config = workerAnnotations.First().Configuration;
-            instanceCount = config.InstanceCount;
-            instanceSizeSlug = config.InstanceSizeSlug;
-            environmentSlug = config.EnvironmentSlug;
-            sourceDir = config.SourceDir;
-            buildCommand = config.BuildCommand;
-            runCommand = config.RunCommand;
+            var spec = workerAnnotations.First().WorkerSpec;
+            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
+            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
+            environmentSlug = spec.EnvironmentSlug;
+            sourceDir = spec.SourceDir;
+            buildCommand = spec.BuildCommand;
+            runCommand = spec.RunCommand;
         }
 
         var workerSpec = new App_worker_spec
@@ -508,18 +505,15 @@ public static class AppSpecGenerator
         // Check for AppServiceAnnotation and apply configuration
         if (container.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var config = serviceAnnotations.First().Configuration;
-            instanceCount = config.InstanceCount;
-            instanceSizeSlug = config.InstanceSizeSlug;
+            var spec = serviceAnnotations.First().ServiceSpec;
+            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
+            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
             // Only override port if explicitly set
-            if (config.HttpPort.HasValue)
-            {
-                httpPort = config.HttpPort.Value;
-            }
-            healthCheckPath = config.HealthCheckPath;
-            environmentSlug = config.EnvironmentSlug;
-            buildCommand = config.BuildCommand;
-            runCommand = config.RunCommand;
+            if (spec.HttpPort > 0) httpPort = (int)spec.HttpPort;
+            healthCheckPath = spec.HealthCheck?.HttpPath;
+            environmentSlug = spec.EnvironmentSlug;
+            buildCommand = spec.BuildCommand;
+            runCommand = spec.RunCommand;
         }
 
         var serviceSpec = new App_service_spec
@@ -612,20 +606,20 @@ public static class AppSpecGenerator
         // Check AppServiceAnnotation for configured source dir
         if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var config = serviceAnnotations.First().Configuration;
-            if (config.SourceDir is not null)
+            var spec = serviceAnnotations.First().ServiceSpec;
+            if (spec.SourceDir is not null)
             {
-                return config.SourceDir;
+                return spec.SourceDir;
             }
         }
 
         // Check AppWorkerAnnotation for configured source dir
         if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var config = workerAnnotations.First().Configuration;
-            if (config.SourceDir is not null)
+            var spec = workerAnnotations.First().WorkerSpec;
+            if (spec.SourceDir is not null)
             {
-                return config.SourceDir;
+                return spec.SourceDir;
             }
         }
 
@@ -657,12 +651,12 @@ public static class AppSpecGenerator
         // Check for AppWorkerAnnotation and apply configuration
         if (container.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var config = workerAnnotations.First().Configuration;
-            instanceCount = config.InstanceCount;
-            instanceSizeSlug = config.InstanceSizeSlug;
-            environmentSlug = config.EnvironmentSlug;
-            buildCommand = config.BuildCommand;
-            runCommand = config.RunCommand;
+            var spec = workerAnnotations.First().WorkerSpec;
+            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
+            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
+            environmentSlug = spec.EnvironmentSlug;
+            buildCommand = spec.BuildCommand;
+            runCommand = spec.RunCommand;
         }
 
         var workerSpec = new App_worker_spec
@@ -754,19 +748,16 @@ public static class AppSpecGenerator
         // Apply configuration from AppServiceAnnotation
         if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out var serviceAnnotations))
         {
-            var config = serviceAnnotations.First().Configuration;
-            instanceCount = config.InstanceCount;
-            instanceSizeSlug = config.InstanceSizeSlug;
+            var spec = serviceAnnotations.First().ServiceSpec;
+            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
+            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
             // Only override port if explicitly set
-            if (config.HttpPort.HasValue)
-            {
-                httpPort = config.HttpPort.Value;
-            }
-            healthCheckPath = config.HealthCheckPath;
-            environmentSlug = config.EnvironmentSlug;
-            sourceDir = config.SourceDir;
-            buildCommand = config.BuildCommand;
-            runCommand = config.RunCommand;
+            if (spec.HttpPort > 0) httpPort = (int)spec.HttpPort;
+            healthCheckPath = spec.HealthCheck?.HttpPath;
+            environmentSlug = spec.EnvironmentSlug;
+            sourceDir = spec.SourceDir;
+            buildCommand = spec.BuildCommand;
+            runCommand = spec.RunCommand;
         }
 
         var serviceSpec = new App_service_spec
@@ -862,13 +853,13 @@ public static class AppSpecGenerator
         // Apply configuration from AppWorkerAnnotation
         if (resource.TryGetAnnotationsOfType<AppWorkerAnnotation>(out var workerAnnotations))
         {
-            var config = workerAnnotations.First().Configuration;
-            instanceCount = config.InstanceCount;
-            instanceSizeSlug = config.InstanceSizeSlug;
-            environmentSlug = config.EnvironmentSlug;
-            sourceDir = config.SourceDir;
-            buildCommand = config.BuildCommand;
-            runCommand = config.RunCommand;
+            var spec = workerAnnotations.First().WorkerSpec;
+            if (spec.InstanceCount > 0) instanceCount = (int)spec.InstanceCount;
+            if (spec.InstanceSizeSlug?.String is not null) instanceSizeSlug = spec.InstanceSizeSlug.String;
+            environmentSlug = spec.EnvironmentSlug;
+            sourceDir = spec.SourceDir;
+            buildCommand = spec.BuildCommand;
+            runCommand = spec.RunCommand;
         }
 
         var workerSpec = new App_worker_spec
