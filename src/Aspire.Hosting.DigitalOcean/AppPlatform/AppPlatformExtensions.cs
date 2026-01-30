@@ -111,9 +111,9 @@ public static class AppPlatformExtensions
     ///     .WithExternalHttpEndpoints()
     ///     .PublishAsAppService(service =>
     ///     {
-    ///         service.Instance_count = 2;
-    ///         service.Instance_size_slug = App_service_spec_instance_size_slug.Apps_s_1vcpu_1gb;
-    ///         service.Http_port = 8080;
+    ///         service.InstanceCount = 2;
+    ///         service.InstanceSizeSlug = new() { String = "apps-s-1vcpu-1gb" };
+    ///         service.HttpPort = 8080;
     ///     });
     /// </code>
     /// </example>
@@ -134,6 +134,49 @@ public static class AppPlatformExtensions
     }
 
     /// <summary>
+    /// Marks a resource for deployment as a DigitalOcean App Platform service with a specified instance size.
+    /// Services are HTTP-based components that handle web traffic.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="instanceSizeSlug">The instance size slug (e.g., "apps-s-1vcpu-0.5gb", "apps-s-1vcpu-1gb", "apps-d-1vcpu-2gb").</param>
+    /// <param name="configure">Optional callback to further configure the App Platform service spec.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <remarks>
+    /// Common instance size slugs:
+    /// <list type="bullet">
+    /// <item><description><c>apps-s-1vcpu-0.5gb</c> - 1 shared vCPU, 512MB RAM ($5/mo)</description></item>
+    /// <item><description><c>apps-s-1vcpu-1gb</c> - 1 shared vCPU, 1GB RAM ($12/mo)</description></item>
+    /// <item><description><c>apps-s-1vcpu-2gb</c> - 1 shared vCPU, 2GB RAM ($25/mo)</description></item>
+    /// <item><description><c>apps-s-2vcpu-4gb</c> - 2 shared vCPUs, 4GB RAM ($50/mo)</description></item>
+    /// <item><description><c>apps-d-1vcpu-2gb</c> - 1 dedicated vCPU, 2GB RAM ($39/mo)</description></item>
+    /// <item><description><c>apps-d-2vcpu-4gb</c> - 2 dedicated vCPUs, 4GB RAM ($78/mo)</description></item>
+    /// </list>
+    /// Dedicated CPU plans (prefix <c>apps-d-</c>) support auto-scaling; shared plans do not.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyApi&gt;("api")
+    ///     .WithExternalHttpEndpoints()
+    ///     .PublishAsAppService("apps-s-1vcpu-1gb");
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsAppService<T>(
+        this IResourceBuilder<T> builder,
+        string instanceSizeSlug,
+        Action<DOModels.App_service_spec>? configure = null) where T : IResource
+    {
+        return builder.PublishAsAppService(service =>
+        {
+            service.InstanceSizeSlug = new DOModels.App_service_spec.App_service_spec_instance_size_slug
+            {
+                String = instanceSizeSlug
+            };
+            configure?.Invoke(service);
+        });
+    }
+
+    /// <summary>
     /// Marks a resource for deployment as a DigitalOcean App Platform worker.
     /// Workers are background processes that don't handle HTTP traffic.
     /// </summary>
@@ -146,8 +189,8 @@ public static class AppPlatformExtensions
     /// builder.AddProject&lt;Projects.MyWorker&gt;("worker")
     ///     .PublishAsAppWorker(worker =>
     ///     {
-    ///         worker.Instance_count = 1;
-    ///         worker.Instance_size_slug = App_worker_spec_instance_size_slug.Apps_s_1vcpu_0_5gb;
+    ///         worker.InstanceCount = 1;
+    ///         worker.InstanceSizeSlug = new() { String = "apps-s-1vcpu-0.5gb" };
     ///     });
     /// </code>
     /// </example>
@@ -159,6 +202,115 @@ public static class AppPlatformExtensions
         builder.ApplicationBuilder.AddAppPlatformPublisher();
         
         var annotation = new AppWorkerAnnotation(configure);
+        builder.WithAnnotation(annotation);
+        
+        // Also add the AppSpecPublishAnnotation for backward compatibility
+        builder.WithAnnotation(new AppSpecPublishAnnotation());
+        
+        return builder;
+    }
+
+    /// <summary>
+    /// Marks a resource for deployment as a DigitalOcean App Platform worker with a specified instance size.
+    /// Workers are background processes that don't handle HTTP traffic.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="instanceSizeSlug">The instance size slug (e.g., "apps-s-1vcpu-0.5gb", "apps-s-1vcpu-1gb", "apps-d-1vcpu-2gb").</param>
+    /// <param name="configure">Optional callback to further configure the App Platform worker spec.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <remarks>
+    /// Common instance size slugs:
+    /// <list type="bullet">
+    /// <item><description><c>apps-s-1vcpu-0.5gb</c> - 1 shared vCPU, 512MB RAM ($5/mo)</description></item>
+    /// <item><description><c>apps-s-1vcpu-1gb</c> - 1 shared vCPU, 1GB RAM ($12/mo)</description></item>
+    /// <item><description><c>apps-s-1vcpu-2gb</c> - 1 shared vCPU, 2GB RAM ($25/mo)</description></item>
+    /// <item><description><c>apps-s-2vcpu-4gb</c> - 2 shared vCPUs, 4GB RAM ($50/mo)</description></item>
+    /// <item><description><c>apps-d-1vcpu-2gb</c> - 1 dedicated vCPU, 2GB RAM ($39/mo)</description></item>
+    /// <item><description><c>apps-d-2vcpu-4gb</c> - 2 dedicated vCPUs, 4GB RAM ($78/mo)</description></item>
+    /// </list>
+    /// Dedicated CPU plans (prefix <c>apps-d-</c>) support auto-scaling; shared plans do not.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyWorker&gt;("worker")
+    ///     .PublishAsAppWorker("apps-s-1vcpu-1gb");
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsAppWorker<T>(
+        this IResourceBuilder<T> builder,
+        string instanceSizeSlug,
+        Action<DOModels.App_worker_spec>? configure = null) where T : IResource
+    {
+        return builder.PublishAsAppWorker(worker =>
+        {
+            worker.InstanceSizeSlug = new DOModels.App_worker_spec.App_worker_spec_instance_size_slug
+            {
+                String = instanceSizeSlug
+            };
+            configure?.Invoke(worker);
+        });
+    }
+
+    /// <summary>
+    /// Marks a resource for deployment as a DigitalOcean App Platform static site.
+    /// Static sites are pre-built web content served from a CDN.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="configure">Optional callback to configure the App Platform static site spec using the InfinityFlow model.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// builder.AddNpmApp("frontend", "../frontend")
+    ///     .PublishAsStaticSite(site =>
+    ///     {
+    ///         site.BuildCommand = "npm run build";
+    ///         site.OutputDir = "dist";
+    ///     });
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsStaticSite<T>(
+        this IResourceBuilder<T> builder,
+        Action<DOModels.App_static_site_spec>? configure = null) where T : IResource
+    {
+        // Ensure the publisher resource is added
+        builder.ApplicationBuilder.AddAppPlatformPublisher();
+        
+        var annotation = new AppStaticSiteAnnotation(configure);
+        builder.WithAnnotation(annotation);
+        
+        // Also add the AppSpecPublishAnnotation for backward compatibility
+        builder.WithAnnotation(new AppSpecPublishAnnotation());
+        
+        return builder;
+    }
+
+    /// <summary>
+    /// Marks a resource for deployment as a DigitalOcean App Platform function.
+    /// Functions are serverless compute units that run on-demand.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">The resource builder.</param>
+    /// <param name="configure">Optional callback to configure the App Platform functions spec using the InfinityFlow model.</param>
+    /// <returns>The resource builder for chaining.</returns>
+    /// <example>
+    /// <code>
+    /// builder.AddProject&lt;Projects.MyFunction&gt;("my-function")
+    ///     .PublishAsFunctions(fn =>
+    ///     {
+    ///         fn.Name = "my-function";
+    ///     });
+    /// </code>
+    /// </example>
+    public static IResourceBuilder<T> PublishAsFunctions<T>(
+        this IResourceBuilder<T> builder,
+        Action<DOModels.App_functions_spec>? configure = null) where T : IResource
+    {
+        // Ensure the publisher resource is added
+        builder.ApplicationBuilder.AddAppPlatformPublisher();
+        
+        var annotation = new AppFunctionsAnnotation(configure);
         builder.WithAnnotation(annotation);
         
         // Also add the AppSpecPublishAnnotation for backward compatibility
@@ -426,6 +578,48 @@ public sealed class AppWorkerAnnotation : IResourceAnnotation
     /// Gets the callback to configure the worker spec.
     /// </summary>
     public Action<DOModels.App_worker_spec>? Configure { get; }
+}
+
+/// <summary>
+/// Annotation marking a resource as an App Platform static site.
+/// Contains an optional callback to configure the static site spec.
+/// </summary>
+public sealed class AppStaticSiteAnnotation : IResourceAnnotation
+{
+    /// <summary>
+    /// Creates a new static site annotation with an optional configuration callback.
+    /// </summary>
+    /// <param name="configure">Optional callback to configure the static site spec.</param>
+    public AppStaticSiteAnnotation(Action<DOModels.App_static_site_spec>? configure = null)
+    {
+        Configure = configure;
+    }
+
+    /// <summary>
+    /// Gets the callback to configure the static site spec.
+    /// </summary>
+    public Action<DOModels.App_static_site_spec>? Configure { get; }
+}
+
+/// <summary>
+/// Annotation marking a resource as an App Platform function.
+/// Contains an optional callback to configure the functions spec.
+/// </summary>
+public sealed class AppFunctionsAnnotation : IResourceAnnotation
+{
+    /// <summary>
+    /// Creates a new functions annotation with an optional configuration callback.
+    /// </summary>
+    /// <param name="configure">Optional callback to configure the functions spec.</param>
+    public AppFunctionsAnnotation(Action<DOModels.App_functions_spec>? configure = null)
+    {
+        Configure = configure;
+    }
+
+    /// <summary>
+    /// Gets the callback to configure the functions spec.
+    /// </summary>
+    public Action<DOModels.App_functions_spec>? Configure { get; }
 }
 
 /// <summary>

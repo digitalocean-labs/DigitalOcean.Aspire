@@ -3,4 +3,5 @@
   <Project Path="src/samples/docr/docr.ServiceDefaults/docr.ServiceDefaults.csproj" />
   <Project Path="src/samples/docr/docr.Web.Server/docr.Web.Server.csproj" />
   <Project Path="src/Aspire.Hosting.DigitalOcean/Aspire.Hosting.DigitalOcean.csproj" />
+  <Project Path="tests/Aspire.Hosting.DigitalOcean.Tests/Aspire.Hosting.DigitalOcean.Tests.csproj" />
 </Solution>

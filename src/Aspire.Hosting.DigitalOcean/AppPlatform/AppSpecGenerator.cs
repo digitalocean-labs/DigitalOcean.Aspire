@@ -41,7 +41,9 @@ public static class AppSpecGenerator
             Region = ParseRegion(region),
             Services = [],
             Workers = [],
-            Databases = []
+            Databases = [],
+            StaticSites = [],
+            Functions = []
         };
 
         foreach (var resource in resources)
@@ -79,9 +81,17 @@ public static class AppSpecGenerator
                     spec.Databases.Add(GenerateDatabaseSpec(r, App_database_spec_engine.REDIS));
                     break;
 
-                // Fallback for any resource with AppServiceAnnotation or AppWorkerAnnotation
+                // Fallback for any resource with annotations
                 default:
-                    if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out _))
+                    if (resource.TryGetAnnotationsOfType<AppStaticSiteAnnotation>(out _))
+                    {
+                        spec.StaticSites.Add(GenerateStaticSiteSpec(resource, gitInfo));
+                    }
+                    else if (resource.TryGetAnnotationsOfType<AppFunctionsAnnotation>(out _))
+                    {
+                        spec.Functions.Add(GenerateFunctionsSpec(resource, gitInfo));
+                    }
+                    else if (resource.TryGetAnnotationsOfType<AppServiceAnnotation>(out _))
                     {
                         spec.Services.Add(GenerateGenericServiceSpec(resource, registryName, gitInfo));
                     }
@@ -97,6 +107,8 @@ public static class AppSpecGenerator
         if (spec.Services.Count == 0) spec.Services = null;
         if (spec.Workers.Count == 0) spec.Workers = null;
         if (spec.Databases.Count == 0) spec.Databases = null;
+        if (spec.StaticSites.Count == 0) spec.StaticSites = null;
+        if (spec.Functions.Count == 0) spec.Functions = null;
 
         return spec;
     }
@@ -137,6 +149,7 @@ public static class AppSpecGenerator
             {
                 ["name"] = s.Name,
                 ["http_port"] = s.HttpPort,
+                ["internal_ports"] = s.InternalPorts is { Count: > 0 } ? s.InternalPorts.ToList() : null,
                 ["instance_count"] = s.InstanceCount,
                 ["instance_size_slug"] = s.InstanceSizeSlug?.String,
                 ["environment_slug"] = s.EnvironmentSlug,
@@ -203,6 +216,42 @@ public static class AppSpecGenerator
             }.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value)).ToList();
         }
 
+        if (spec.StaticSites is { Count: > 0 })
+        {
+            result["static_sites"] = spec.StaticSites.Select(s => new Dictionary<string, object?>
+            {
+                ["name"] = s.Name,
+                ["environment_slug"] = s.EnvironmentSlug,
+                ["source_dir"] = s.SourceDir,
+                ["build_command"] = s.BuildCommand,
+                ["output_dir"] = s.OutputDir,
+                ["index_document"] = s.IndexDocument,
+                ["error_document"] = s.ErrorDocument,
+                ["catchall_document"] = s.CatchallDocument,
+                ["github"] = s.Github is not null ? new Dictionary<string, object?>
+                {
+                    ["repo"] = s.Github.Repo,
+                    ["branch"] = s.Github.Branch,
+                    ["deploy_on_push"] = s.Github.DeployOnPush
+                } : null
+            }.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value)).ToList();
+        }
+
+        if (spec.Functions is { Count: > 0 })
+        {
+            result["functions"] = spec.Functions.Select(f => new Dictionary<string, object?>
+            {
+                ["name"] = f.Name,
+                ["source_dir"] = f.SourceDir,
+                ["github"] = f.Github is not null ? new Dictionary<string, object?>
+                {
+                    ["repo"] = f.Github.Repo,
+                    ["branch"] = f.Github.Branch,
+                    ["deploy_on_push"] = f.Github.DeployOnPush
+                } : null
+            }.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value)).ToList();
+        }
+
         // Remove null values from the root
         return result.Where(kv => kv.Value is not null)
             .ToDictionary(kv => kv.Key, kv => kv.Value);
@@ -238,11 +287,14 @@ public static class AppSpecGenerator
 
     private static App_service_spec GenerateServiceSpec(ProjectResource project, string? registryName, GitRepoInfo? gitInfo)
     {
+        var httpPort = GetHttpPort(project);
+        
         // Create the spec with Aspire-inferred defaults
         var serviceSpec = new App_service_spec
         {
             Name = SanitizeName(project.Name),
-            HttpPort = GetHttpPort(project),
+            HttpPort = httpPort,
+            InternalPorts = GetInternalPorts(project, httpPort),
             InstanceCount = 1,
             InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
             { 
@@ -299,6 +351,16 @@ public static class AppSpecGenerator
 
             // .NET projects use the dotnet buildpack
             serviceSpec.EnvironmentSlug = "dotnet";
+        }
+
+        // Set health check from annotation if available
+        var healthCheckPath = GetHealthCheckPath(project);
+        if (healthCheckPath is not null)
+        {
+            serviceSpec.HealthCheck = new App_service_spec_health_check
+            {
+                HttpPath = healthCheckPath
+            };
         }
 
         // Apply user configuration callback last to allow full override
@@ -406,11 +468,14 @@ public static class AppSpecGenerator
 
     private static App_service_spec GenerateContainerServiceSpec(ContainerResource container, string? registryName, GitRepoInfo? gitInfo)
     {
+        var httpPort = GetHttpPort(container);
+        
         // Create the spec with Aspire-inferred defaults
         var serviceSpec = new App_service_spec
         {
             Name = SanitizeName(container.Name),
-            HttpPort = GetHttpPort(container),
+            HttpPort = httpPort,
+            InternalPorts = GetInternalPorts(container, httpPort),
             InstanceCount = 1,
             InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
             { 
@@ -455,6 +520,16 @@ public static class AppSpecGenerator
                 RegistryType = registryType,
                 Repository = repository,
                 Tag = tag
+            };
+        }
+
+        // Set health check from annotation if available
+        var healthCheckPath = GetHealthCheckPath(container);
+        if (healthCheckPath is not null)
+        {
+            serviceSpec.HealthCheck = new App_service_spec_health_check
+            {
+                HttpPath = healthCheckPath
             };
         }
 
@@ -554,11 +629,14 @@ public static class AppSpecGenerator
     /// </summary>
     private static App_service_spec GenerateGenericServiceSpec(IResource resource, string? registryName, GitRepoInfo? gitInfo)
     {
+        var httpPort = GetHttpPort(resource);
+        
         // Create the spec with Aspire-inferred defaults
         var serviceSpec = new App_service_spec
         {
             Name = SanitizeName(resource.Name),
-            HttpPort = GetHttpPort(resource),
+            HttpPort = httpPort,
+            InternalPorts = GetInternalPorts(resource, httpPort),
             InstanceCount = 1,
             InstanceSizeSlug = new App_service_spec.App_service_spec_instance_size_slug 
             { 
@@ -604,6 +682,16 @@ public static class AppSpecGenerator
                 DeployOnPush = true
             };
             serviceSpec.SourceDir = GetContainerSourceDir(resource, gitInfo.RepoRootPath);
+        }
+
+        // Set health check from annotation if not already set
+        var healthCheckPath = GetHealthCheckPath(resource);
+        if (healthCheckPath is not null)
+        {
+            serviceSpec.HealthCheck = new App_service_spec_health_check
+            {
+                HttpPath = healthCheckPath
+            };
         }
 
         // Apply user configuration callback last to allow full override
@@ -680,6 +768,113 @@ public static class AppSpecGenerator
         return workerSpec;
     }
 
+    /// <summary>
+    /// Generates a static site spec for any resource type that has the AppStaticSiteAnnotation.
+    /// </summary>
+    private static App_static_site_spec GenerateStaticSiteSpec(IResource resource, GitRepoInfo? gitInfo)
+    {
+        // Create the spec with Aspire-inferred defaults
+        var staticSiteSpec = new App_static_site_spec
+        {
+            Name = SanitizeName(resource.Name)
+        };
+
+        // Determine deployment source - static sites use source-based deployment
+        if (resource.TryGetAnnotationsOfType<GitHubSourceAnnotation>(out var gitHubAnnotations))
+        {
+            var gitHubAnnotation = gitHubAnnotations.First();
+            staticSiteSpec.Github = new Apps_github_source_spec
+            {
+                Repo = gitHubAnnotation.Config.Repository,
+                Branch = gitHubAnnotation.Config.Branch,
+                DeployOnPush = gitHubAnnotation.Config.DeployOnPush
+            };
+
+            if (gitHubAnnotation.Config.SourceDir is not null)
+            {
+                staticSiteSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
+            }
+        }
+        else if (gitInfo?.Repository is not null)
+        {
+            staticSiteSpec.Github = new Apps_github_source_spec
+            {
+                Repo = gitInfo.Repository,
+                Branch = gitInfo.Branch,
+                DeployOnPush = true
+            };
+            staticSiteSpec.SourceDir = GetContainerSourceDir(resource, gitInfo.RepoRootPath);
+        }
+
+        // Apply user configuration callback last to allow full override
+        if (resource.TryGetAnnotationsOfType<AppStaticSiteAnnotation>(out var staticSiteAnnotations))
+        {
+            staticSiteAnnotations.First().Configure?.Invoke(staticSiteSpec);
+        }
+
+        return staticSiteSpec;
+    }
+
+    /// <summary>
+    /// Generates a functions spec for any resource type that has the AppFunctionsAnnotation.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when no git source is available. Functions only support source-based deployment.</exception>
+    private static App_functions_spec GenerateFunctionsSpec(IResource resource, GitRepoInfo? gitInfo)
+    {
+        // Functions only support source-based deployment from git repositories
+        var hasGitHubAnnotation = resource.TryGetAnnotationsOfType<GitHubSourceAnnotation>(out var gitHubAnnotations);
+        var hasGitInfo = gitInfo?.Repository is not null;
+
+        if (!hasGitHubAnnotation && !hasGitInfo)
+        {
+            throw new InvalidOperationException(
+                $"Resource '{resource.Name}' is configured as a function but no git source is available. " +
+                "Functions only support source-based deployment from git repositories. " +
+                "Either run from within a git repository or use WithGitHubSource() to specify a source.");
+        }
+
+        // Create the spec with Aspire-inferred defaults
+        var functionsSpec = new App_functions_spec
+        {
+            Name = SanitizeName(resource.Name)
+        };
+
+        // Determine deployment source - functions use source-based deployment
+        if (hasGitHubAnnotation)
+        {
+            var gitHubAnnotation = gitHubAnnotations!.First();
+            functionsSpec.Github = new Apps_github_source_spec
+            {
+                Repo = gitHubAnnotation.Config.Repository,
+                Branch = gitHubAnnotation.Config.Branch,
+                DeployOnPush = gitHubAnnotation.Config.DeployOnPush
+            };
+
+            if (gitHubAnnotation.Config.SourceDir is not null)
+            {
+                functionsSpec.SourceDir = gitHubAnnotation.Config.SourceDir;
+            }
+        }
+        else // hasGitInfo is true
+        {
+            functionsSpec.Github = new Apps_github_source_spec
+            {
+                Repo = gitInfo!.Repository,
+                Branch = gitInfo.Branch,
+                DeployOnPush = true
+            };
+            functionsSpec.SourceDir = GetContainerSourceDir(resource, gitInfo.RepoRootPath);
+        }
+
+        // Apply user configuration callback last to allow full override
+        if (resource.TryGetAnnotationsOfType<AppFunctionsAnnotation>(out var functionsAnnotations))
+        {
+            functionsAnnotations.First().Configure?.Invoke(functionsSpec);
+        }
+
+        return functionsSpec;
+    }
+
     private static App_database_spec GenerateDatabaseSpec(IResource resource, App_database_spec_engine engine)
     {
         return new App_database_spec
@@ -743,16 +938,32 @@ public static class AppSpecGenerator
     }
 
     /// <summary>
-    /// Gets the HTTP port from endpoint annotations, or returns the default port.
+    /// Gets the HTTP port from endpoint annotations for the external-facing endpoint.
+    /// Prefers external HTTPS endpoints, then external HTTP endpoints, then any HTTP endpoint.
     /// </summary>
     private static int GetHttpPort(IResource resource, int defaultPort = 8080)
     {
         if (resource.TryGetAnnotationsOfType<EndpointAnnotation>(out var endpoints))
         {
-            // Look for HTTP/HTTPS endpoints and get the target port
+            // First, look for external HTTPS endpoint (WithExternalHttpEndpoints marks https as external)
+            var externalHttpsEndpoint = endpoints.FirstOrDefault(e => 
+                e.UriScheme == "https" && e.IsExternal == true);
+            if (externalHttpsEndpoint?.TargetPort is not null)
+            {
+                return externalHttpsEndpoint.TargetPort.Value;
+            }
+
+            // Then, look for external HTTP endpoint
+            var externalHttpEndpoint = endpoints.FirstOrDefault(e => 
+                e.UriScheme == "http" && e.IsExternal == true);
+            if (externalHttpEndpoint?.TargetPort is not null)
+            {
+                return externalHttpEndpoint.TargetPort.Value;
+            }
+
+            // Fallback to any HTTP/HTTPS endpoint
             var httpEndpoint = endpoints.FirstOrDefault(e => 
                 e.UriScheme == "http" || e.UriScheme == "https");
-            
             if (httpEndpoint?.TargetPort is not null)
             {
                 return httpEndpoint.TargetPort.Value;
@@ -760,6 +971,89 @@ public static class AppSpecGenerator
         }
 
         return defaultPort;
+    }
+
+    /// <summary>
+    /// Gets internal ports from endpoint annotations.
+    /// Returns all ports that are not the main external HTTP port.
+    /// </summary>
+    private static List<long?>? GetInternalPorts(IResource resource, int httpPort)
+    {
+        if (!resource.TryGetAnnotationsOfType<EndpointAnnotation>(out var endpoints))
+        {
+            return null;
+        }
+
+        var internalPorts = new List<long?>();
+
+        foreach (var endpoint in endpoints)
+        {
+            // Skip endpoints without a target port
+            if (endpoint.TargetPort is null)
+            {
+                continue;
+            }
+
+            var port = (long)endpoint.TargetPort.Value;
+
+            // Skip the main HTTP port (already exposed via http_port)
+            if (port == httpPort)
+            {
+                continue;
+            }
+
+            // Add all other ports as internal ports
+            if (!internalPorts.Contains(port))
+            {
+                internalPorts.Add(port);
+            }
+        }
+
+        return internalPorts.Count > 0 ? internalPorts : null;
+    }
+
+    /// <summary>
+    /// Gets the health check path from HealthCheckAnnotation if available.
+    /// The key format from WithHttpHealthCheck is: "{resourceName}_{endpointName}_{path}_{statusCode}_check"
+    /// </summary>
+    private static string? GetHealthCheckPath(IResource resource)
+    {
+        if (resource.TryGetAnnotationsOfType<HealthCheckAnnotation>(out var healthChecks))
+        {
+            foreach (var hc in healthChecks)
+            {
+                // Key format: "{resourceName}_{endpointName}_{path}_{statusCode}_check"
+                // We need to extract the path which starts with "/" and is followed by "_{statusCode}_check"
+                var key = hc.Key;
+                
+                // Look for patterns that end with "_check" and contain a path starting with "/"
+                if (key.EndsWith("_check", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Find the path by looking for "/" in the key
+                    var pathStartIndex = key.IndexOf('/');
+                    if (pathStartIndex >= 0)
+                    {
+                        // Find where the path ends (at the status code part: "_{statusCode}_check")
+                        // The path ends before the last two underscore-separated segments
+                        var pathEndIndex = key.LastIndexOf('_');
+                        if (pathEndIndex > pathStartIndex)
+                        {
+                            // Go back one more underscore to skip the status code
+                            var statusCodeStart = key.LastIndexOf('_', pathEndIndex - 1);
+                            if (statusCodeStart > pathStartIndex)
+                            {
+                                return key[pathStartIndex..statusCodeStart];
+                            }
+                        }
+                        
+                        // Fallback: just get everything from "/" to the last segment
+                        return key[pathStartIndex..pathEndIndex];
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     private static bool IsPostgresResource(IResource resource)
