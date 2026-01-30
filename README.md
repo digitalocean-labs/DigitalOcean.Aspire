@@ -2,6 +2,17 @@
 
 DigitalOcean hosting integration for .NET Aspire. Deploy applications to DigitalOcean App Platform with container registry support.
 
+> ⚠️ **WARNING: ALPHA STATE - NOT YET USABLE**
+> 
+> **This project is currently in alpha/experimental state and is NOT ready for production use.**
+> 
+> - Many features are incomplete or broken
+> - The API is subject to change without notice
+> - Documentation may be outdated
+> - Use at your own risk
+> 
+> This project is under active development and should not be used in production environments.
+
 ## Packages
 
 | Package | NuGet | Description |
